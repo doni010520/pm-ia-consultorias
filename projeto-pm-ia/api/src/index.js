@@ -9,7 +9,6 @@ import tasksRouter from './routes/tasks.js';
 import projectsRouter from './routes/projects.js';
 import reportsRouter from './routes/reports.js';
 import transcriptionsRouter from './routes/transcriptions.js';
-import webhookRouter from './routes/webhook.js';
 
 // Serviços
 import { initDatabase } from './services/database.js';
@@ -40,7 +39,6 @@ app.use('/api/tasks', tasksRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/transcriptions', transcriptionsRouter);
-app.use('/webhook', webhookRouter);
 
 // Error handler global
 app.use((err, req, res, next) => {

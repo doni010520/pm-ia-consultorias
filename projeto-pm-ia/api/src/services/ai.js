@@ -192,33 +192,6 @@ export async function extractTaskFromMessage(message, context) {
 }
 
 /**
- * Classifica intenção de uma mensagem
- */
-export async function classifyIntent(message) {
-  const template = loadPromptTemplate('classificar_intencao');
-  
-  if (!template) {
-    // Fallback com template inline
-    const fallbackPrompt = `Classifique a mensagem em uma categoria:
-CRIAR_TAREFA, STATUS_PROJETO, STATUS_TAREFAS, STATUS_EQUIPE, ATRASADOS, PROXIMAS_ENTREGAS, FINANCEIRO, RELATORIO, ATUALIZAR_TAREFA, OUTRO
-
-Responda apenas com JSON: {"category": "NOME", "confidence": 0-100}
-
-Mensagem: ${message}`;
-    
-    return callOpenAI(fallbackPrompt, { temperature: 0, jsonMode: true });
-  }
-
-  const prompt = fillTemplate(template, { userMessage: message });
-  
-  return callOpenAI(prompt, {
-    temperature: 0,
-    jsonMode: true,
-    maxTokens: 200
-  });
-}
-
-/**
  * Analisa risco de um projeto
  */
 export async function analyzeProjectRisk(projectData, metrics) {
@@ -264,34 +237,6 @@ export async function generateReport(reportType, projectData, metrics) {
   return callClaude(prompt, {
     temperature: 0.4,
     maxTokens: 3000
-  });
-}
-
-/**
- * Formata resposta para WhatsApp
- */
-export async function formatWhatsAppResponse(data, type) {
-  const prompts = {
-    task_created: `Formate uma confirmação de tarefa criada para WhatsApp (curta, com emojis):
-Tarefa: ${data.title}
-Responsável: ${data.assignee || 'Você'}
-Prazo: ${data.due_date || 'Não definido'}
-Prioridade: ${data.priority}`,
-    
-    status_response: `Resuma o status do projeto para WhatsApp (máximo 500 caracteres, com emojis):
-${JSON.stringify(data)}`,
-    
-    risk_alert: `Formate um alerta de risco para WhatsApp (urgente mas profissional):
-${JSON.stringify(data)}`
-  };
-
-  const prompt = prompts[type];
-  if (!prompt) return { success: false, error: 'Tipo de resposta não suportado' };
-
-  return callOpenAI(prompt, {
-    temperature: 0.3,
-    jsonMode: false,
-    maxTokens: 500
   });
 }
 
@@ -398,9 +343,7 @@ export default {
   callOpenAI,
   callClaude,
   extractTaskFromMessage,
-  classifyIntent,
   analyzeProjectRisk,
   generateReport,
-  formatWhatsAppResponse,
   processTranscription
 };

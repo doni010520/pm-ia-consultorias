@@ -183,32 +183,8 @@ CREATE INDEX idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX idx_time_entries_date ON time_entries(date);
 
 -- ============================================
--- TABELAS DE IA E COMUNICAÇÃO
+-- TABELAS DE IA
 -- ============================================
-
--- Histórico de conversas WhatsApp (para contexto)
-CREATE TABLE whatsapp_conversations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    whatsapp_number VARCHAR(20) NOT NULL,
-    
-    -- Última mensagem
-    last_message_at TIMESTAMPTZ DEFAULT NOW(),
-    last_message_text TEXT,
-    
-    -- Contexto para IA (últimas N mensagens serialized)
-    context JSONB DEFAULT '[]',
-    
-    -- Estado da conversa
-    state VARCHAR(50) DEFAULT 'idle', -- idle, awaiting_confirmation, awaiting_input
-    pending_action JSONB, -- ação pendente de confirmação
-    
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_whatsapp_conversations_number ON whatsapp_conversations(whatsapp_number);
 
 -- Log de interações com IA
 CREATE TABLE ai_interactions (

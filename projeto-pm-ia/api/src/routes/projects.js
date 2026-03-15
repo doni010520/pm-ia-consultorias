@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import { query, getProjectMetrics, getActiveProjects, saveRiskAlert } from '../services/database.js';
 import { analyzeProjectRisk } from '../services/ai.js';
-import { sendRiskAlert } from '../services/whatsapp.js';
-
 const router = Router();
 
 /**
@@ -143,7 +141,7 @@ router.get('/:id/risk-analysis', async (req, res, next) => {
  */
 router.post('/check-risks', async (req, res, next) => {
   try {
-    const { organization_id, notify_whatsapp } = req.body;
+    const { organization_id } = req.body;
     const orgId = organization_id || process.env.DEFAULT_ORGANIZATION_ID;
 
     const projects = await getActiveProjects(orgId);
@@ -198,27 +196,6 @@ router.post('/check-risks', async (req, res, next) => {
         analysis: parsedAnalysis
       });
 
-      // Notificar gestores via WhatsApp se solicitado
-      if (notify_whatsapp) {
-        try {
-          // Buscar gestores do projeto
-          const managersResult = await query(
-            `SELECT u.whatsapp FROM users u WHERE u.organization_id = $1 AND u.role IN ('admin', 'manager') AND u.whatsapp IS NOT NULL AND u.is_active = true`,
-            [orgId]
-          );
-
-          for (const manager of managersResult.rows) {
-            await sendRiskAlert(manager.whatsapp, {
-              project_name: project.name,
-              severity,
-              risk_score: riskScore,
-              summary: parsedAnalysis.summary || parsedAnalysis.root_causes?.join(', ') || 'Projeto em risco'
-            });
-          }
-        } catch (notifyErr) {
-          console.error(`Erro ao notificar sobre projeto ${project.name}:`, notifyErr);
-        }
-      }
     }
 
     res.json({
