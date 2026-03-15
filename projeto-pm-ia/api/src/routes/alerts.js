@@ -6,7 +6,7 @@ const router = Router();
 /**
  * GET /api/alerts/today
  * Tarefas do dia - para tela da app e para n8n (notificacoes)
- * Query: organization_id, assignee_id
+ * Query: organization_id, assignee_id, project_id
  */
 router.get('/today', async (req, res, next) => {
   try {
@@ -29,6 +29,11 @@ router.get('/today', async (req, res, next) => {
     `;
     const params = [orgId];
     let paramIndex = 2;
+
+    if (req.query.project_id) {
+      sql += ` AND t.project_id = $${paramIndex++}`;
+      params.push(req.query.project_id);
+    }
 
     if (req.query.assignee_id) {
       sql += ` AND t.assignee_id = $${paramIndex++}`;
@@ -103,7 +108,7 @@ router.get('/overdue', async (req, res, next) => {
 /**
  * GET /api/alerts/summary
  * Resumo consolidado para notificacoes (ideal para n8n enviar via WhatsApp)
- * Query: organization_id
+ * Query: organization_id, project_id
  * Retorna: tarefas do dia, atrasadas, e proximas entregas (7 dias)
  */
 router.get('/summary', async (req, res, next) => {
@@ -112,6 +117,10 @@ router.get('/summary', async (req, res, next) => {
     if (!orgId) {
       return res.status(400).json({ error: 'organization_id e obrigatorio' });
     }
+
+    const projectFilter = req.query.project_id;
+    const projectClause = projectFilter ? ' AND t.project_id = $2' : '';
+    const baseParams = projectFilter ? [orgId, projectFilter] : [orgId];
 
     // Tarefas do dia
     const todayResult = await query(`
@@ -122,8 +131,9 @@ router.get('/summary', async (req, res, next) => {
       WHERE t.organization_id = $1
         AND t.status NOT IN ('done', 'cancelled')
         AND t.due_date::date = CURRENT_DATE
+        ${projectClause}
       ORDER BY t.priority DESC
-    `, [orgId]);
+    `, baseParams);
 
     // Tarefas atrasadas
     const overdueResult = await query(`
@@ -135,8 +145,9 @@ router.get('/summary', async (req, res, next) => {
       WHERE t.organization_id = $1
         AND t.status NOT IN ('done', 'cancelled')
         AND t.due_date < CURRENT_DATE
+        ${projectClause}
       ORDER BY t.due_date ASC
-    `, [orgId]);
+    `, baseParams);
 
     // Proximas entregas (7 dias)
     const upcomingResult = await query(`
@@ -148,10 +159,11 @@ router.get('/summary', async (req, res, next) => {
         AND t.status NOT IN ('done', 'cancelled')
         AND t.due_date::date > CURRENT_DATE
         AND t.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
+        ${projectClause}
       ORDER BY t.due_date ASC
-    `, [orgId]);
+    `, baseParams);
 
-    // Projetos em risco
+    // Projetos em risco (ignora filtro project_id - sempre mostra todos)
     const riskyProjectsResult = await query(`
       SELECT p.name, p.due_date,
              COUNT(t.id) FILTER (WHERE t.status NOT IN ('done', 'cancelled') AND t.due_date < CURRENT_DATE) as overdue_tasks,
