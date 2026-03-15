@@ -8,7 +8,7 @@ Sistema completo (API + Frontend) para gestao de projetos de consultoria com pro
 - **Runtime:** Node.js 18+
 - **Framework:** Express.js
 - **Banco:** PostgreSQL (ou Supabase)
-- **IA:** OpenAI (GPT-4.1-mini) + Anthropic (Claude Sonnet)
+- **IA:** OpenAI (GPT-4.1-mini para volume + GPT-4.1 para qualidade)
 
 ### Frontend
 - **Framework:** React 18 + TypeScript
@@ -47,7 +47,6 @@ PORT=3000
 DATABASE_URL=postgresql://user:pass@host:5432/pmia
 DEFAULT_ORGANIZATION_ID=00000000-0000-0000-0000-000000000001
 OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
 NODE_ENV=production
 ```
 
@@ -212,7 +211,7 @@ Retorna metricas calculadas do projeto.
 
 #### GET /api/projects/:id/risk-analysis
 
-Analisa riscos do projeto usando IA (Claude).
+Analisa riscos do projeto usando IA (GPT-4.1).
 
 **Resposta:**
 ```json
@@ -220,7 +219,7 @@ Analisa riscos do projeto usando IA (Claude).
   "project": { "id": "uuid", "name": "Projeto", "client": "Cliente" },
   "metrics": { "burn_rate": 0.85, "overdue_ratio": 0.3 },
   "analysis": "Analise detalhada da IA...",
-  "model": "claude-sonnet-4-20250514",
+  "model": "gpt-4.1",
   "latency_ms": 2500
 }
 ```
@@ -581,7 +580,7 @@ Resumo consolidado ideal para n8n montar mensagem de notificacao diaria.
 
 #### POST /api/reports/generate
 
-Gera relatorio executivo usando Claude.
+Gera relatorio executivo usando IA (GPT-4.1).
 
 **Body:**
 ```json
@@ -708,7 +707,7 @@ projeto-pm-ia/
 │   │   │   ├── transcriptions.js # Upload e processamento de transcricoes
 │   │   │   └── alerts.js         # Alertas e notificacoes
 │   │   └── services/
-│   │       ├── ai.js             # OpenAI + Anthropic
+│   │       ├── ai.js             # OpenAI (GPT-4.1-mini + GPT-4.1)
 │   │       ├── database.js       # PostgreSQL + Supabase
 │   │       └── transcription.js  # Orquestracao de transcricoes
 │   ├── package.json

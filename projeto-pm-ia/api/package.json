@@ -16,7 +16,6 @@
     "pg": "^8.11.5",
     "@supabase/supabase-js": "^2.43.0",
     "openai": "^4.47.0",
-    "@anthropic-ai/sdk": "^0.22.0",
     "helmet": "^7.1.0",
     "morgan": "^1.10.0",
     "date-fns": "^3.6.0",

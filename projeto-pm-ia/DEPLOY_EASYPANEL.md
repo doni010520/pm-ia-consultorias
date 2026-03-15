@@ -6,7 +6,7 @@ Guia para deploy do sistema PM-IA (API + Frontend) no Easypanel.
 
 - Easypanel instalado na VPS
 - Repositorio GitHub: `https://github.com/doni010520/pm-ia-consultorias.git`
-- Chaves de API: OpenAI e Anthropic
+- Chave de API: OpenAI
 
 ---
 
@@ -48,7 +48,6 @@ psql $DATABASE_URL < database/schema.sql
 | `DATABASE_URL` | `postgresql://...` | Connection string do PostgreSQL |
 | `DEFAULT_ORGANIZATION_ID` | `uuid` | ID da organizacao padrao |
 | `OPENAI_API_KEY` | `sk-...` | Chave da API OpenAI |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` | Chave da API Anthropic |
 
 ### Configuracoes
 
@@ -135,4 +134,4 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'Admin', 'admin@email.com', 'adm
 | Erro 502 no `/api/` | Verificar se o backend esta rodando e o nome da app e `pm-ia-api` |
 | Erro de banco | Verificar `DATABASE_URL` e se o schema foi executado |
 | Build do frontend falha | Verificar se os Build Args `VITE_*` estao configurados |
-| IA nao funciona | Verificar `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` |
+| IA nao funciona | Verificar `OPENAI_API_KEY` |

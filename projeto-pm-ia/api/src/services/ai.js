@@ -1,27 +1,20 @@
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Clientes de IA
+// Cliente de IA
 let openai = null;
-let anthropic = null;
 
 /**
- * Inicializa clientes de IA
+ * Inicializa cliente OpenAI
  */
 export function initAI() {
   if (process.env.OPENAI_API_KEY) {
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     console.log('✅ OpenAI inicializado');
-  }
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    console.log('✅ Anthropic inicializado');
   }
 }
 
@@ -107,39 +100,40 @@ export async function callOpenAI(prompt, options = {}) {
 }
 
 /**
- * Chama Claude (para qualidade)
+ * Chama OpenAI com modelo de qualidade (para analises e relatorios)
  */
-export async function callClaude(prompt, options = {}) {
-  if (!anthropic) {
-    throw new Error('Anthropic não configurado');
+export async function callOpenAIQuality(prompt, options = {}) {
+  if (!openai) {
+    throw new Error('OpenAI não configurado');
   }
 
   const {
-    model = process.env.DEFAULT_MODEL_QUALITY || 'claude-sonnet-4-20250514',
+    model = process.env.DEFAULT_MODEL_QUALITY || 'gpt-4.1',
     temperature = 0.3,
-    maxTokens = 2000
+    maxTokens = 2000,
+    jsonMode = false
   } = options;
 
   const start = Date.now();
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await openai.chat.completions.create({
       model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature,
       max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }]
+      ...(jsonMode && { response_format: { type: 'json_object' } })
     });
 
     const latency = Date.now() - start;
-    const content = response.content[0]?.text || '';
+    const content = response.choices[0]?.message?.content || '';
 
     // Tentar parsear JSON se parecer ser JSON
     let parsed = null;
-    if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
-      try {
-        parsed = JSON.parse(content);
-      } catch {
-        // Não é JSON válido, ignorar
-      }
+    if (jsonMode) {
+      try { parsed = JSON.parse(content); } catch { /* ignorar */ }
+    } else if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
+      try { parsed = JSON.parse(content); } catch { /* ignorar */ }
     }
 
     return {
@@ -148,8 +142,8 @@ export async function callClaude(prompt, options = {}) {
       parsed,
       model,
       tokens: {
-        input: response.usage?.input_tokens,
-        output: response.usage?.output_tokens
+        input: response.usage?.prompt_tokens,
+        output: response.usage?.completion_tokens
       },
       latency
     };
@@ -205,8 +199,8 @@ export async function analyzeProjectRisk(projectData, metrics) {
     indicators: JSON.stringify(metrics, null, 2)
   });
 
-  // Usar Claude para análise de risco (qualidade)
-  return callClaude(prompt, {
+  // Usar modelo de qualidade para análise de risco
+  return callOpenAIQuality(prompt, {
     temperature: 0.3,
     maxTokens: 1500
   });
@@ -233,8 +227,8 @@ export async function generateReport(reportType, projectData, metrics) {
     metricsData: JSON.stringify(metrics, null, 2)
   });
 
-  // Usar Claude para relatórios (qualidade de escrita)
-  return callClaude(prompt, {
+  // Usar modelo de qualidade para relatórios
+  return callOpenAIQuality(prompt, {
     temperature: 0.4,
     maxTokens: 3000
   });
@@ -341,7 +335,7 @@ Inclua: resumo, entregas, métricas, próximos passos.`;
 
 export default {
   callOpenAI,
-  callClaude,
+  callOpenAIQuality,
   extractTaskFromMessage,
   analyzeProjectRisk,
   generateReport,

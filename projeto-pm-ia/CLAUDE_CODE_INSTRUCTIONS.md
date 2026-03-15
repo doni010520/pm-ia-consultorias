@@ -14,7 +14,7 @@ Este é um sistema de gestão de projetos para consultorias empresariais com 4 f
 - **Backend**: Node.js/Express
 - **Banco de Dados**: PostgreSQL (Supabase)
 - **WhatsApp**: Qualquer API (Evolution, Uazapi, Z-API, CodeChat, etc.)
-- **IA**: GPT-4.1-mini (volume) + Claude Sonnet (qualidade)
+- **IA**: OpenAI GPT-4.1-mini (volume) + GPT-4.1 (qualidade)
 - **Frontend**: React + Tailwind CSS (a ser implementado)
 
 ## Arquitetura
@@ -46,7 +46,7 @@ projeto-pm-ia/
 │       │   ├── reports.js       # Relatórios + envio WhatsApp
 │       │   └── webhook.js       # Webhook WhatsApp (processamento completo)
 │       └── services/
-│           ├── ai.js            # Serviço de IA (OpenAI/Claude)
+│           ├── ai.js            # Serviço de IA (OpenAI)
 │           ├── whatsapp.js      # Serviço WhatsApp (multi-provider)
 │           └── database.js      # Conexão PostgreSQL + operações
 └── frontend/
@@ -118,9 +118,8 @@ DATABASE_URL=postgresql://user:pass@host:5432/db
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_ANON_KEY=xxx
 
-# IA
+# IA (somente OpenAI)
 OPENAI_API_KEY=sk-xxx
-ANTHROPIC_API_KEY=sk-ant-xxx
 
 # WhatsApp (qualquer provider)
 WHATSAPP_PROVIDER=evolution  # evolution | uazapi | zapi | codechat | generic
@@ -143,7 +142,7 @@ WHATSAPP_API_INSTANCE=xxx
 
 - Todos os cálculos matemáticos devem ser feitos em JavaScript, NUNCA no LLM
 - Usar GPT-4.1-mini para operações de alto volume (criar tarefas, classificar)
-- Usar Claude Sonnet para qualidade (relatórios, análises de risco)
+- Usar GPT-4.1 para qualidade (relatórios, análises de risco)
 - Sempre validar extração do LLM antes de inserir no banco
 - Manter logs de todas as interações para debugging
 - Conversas pendentes de confirmação são persistidas no banco (tabela whatsapp_conversations), com timeout de 5 minutos
