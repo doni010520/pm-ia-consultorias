@@ -337,4 +337,48 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+/**
+ * PATCH /api/projects/:id
+ * Atualiza um projeto existente
+ */
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const allowedFields = [
+      'name', 'description', 'status', 'priority',
+      'start_date', 'due_date', 'completed_at',
+      'budget_hours', 'budget_value', 'billing_type',
+      'progress_percent', 'client_id', 'settings'
+    ];
+
+    const fields = Object.keys(req.body).filter(k => allowedFields.includes(k) && req.body[k] !== undefined);
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: { message: 'Nenhum campo valido para atualizar' } });
+    }
+
+    const setClauses = fields.map((f, i) => `${f} = $${i + 1}`);
+    setClauses.push('updated_at = NOW()');
+
+    const values = fields.map(f => {
+      if (f === 'settings') return JSON.stringify(req.body[f]);
+      return req.body[f];
+    });
+    values.push(id);
+
+    const result = await query(
+      `UPDATE projects SET ${setClauses.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Projeto nao encontrado' } });
+    }
+
+    res.json({ project: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
