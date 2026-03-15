@@ -1,13 +1,23 @@
 # PM-IA - Sistema de Gestao de Projetos com IA
 
-API REST para gestao de projetos de consultoria com processamento inteligente de transcricoes de reuniao. Recebe arquivos `.txt` de transcricoes, processa com IA (GPT-4.1-mini) e cria automaticamente projetos, atas, acoes, decisoes e riscos no PostgreSQL.
+Sistema completo (API + Frontend) para gestao de projetos de consultoria com processamento inteligente de transcricoes de reuniao. Recebe arquivos `.txt` de transcricoes, processa com IA (GPT-4.1-mini) e cria automaticamente projetos, atas, acoes, decisoes e riscos no PostgreSQL. Substitui o Notion como ferramenta de gestao.
 
 ## Stack
 
+### Backend (API)
 - **Runtime:** Node.js 18+
 - **Framework:** Express.js
 - **Banco:** PostgreSQL (ou Supabase)
 - **IA:** OpenAI (GPT-4.1-mini) + Anthropic (Claude Sonnet)
+
+### Frontend
+- **Framework:** React 18 + TypeScript
+- **Build:** Vite
+- **UI:** Tailwind CSS + shadcn/ui (Radix UI)
+- **State:** TanStack Query + Zustand
+- **Routing:** React Router DOM
+- **Icons:** Lucide React
+- **Datas:** date-fns (pt-BR)
 
 ## Setup
 
@@ -15,8 +25,13 @@ API REST para gestao de projetos de consultoria com processamento inteligente de
 
 ```bash
 git clone https://github.com/doni010520/pm-ia-consultorias.git
-cd pm-ia-consultorias/projeto-pm-ia/api
-npm install
+cd pm-ia-consultorias/projeto-pm-ia
+
+# Backend
+cd api && npm install
+
+# Frontend
+cd ../frontend && npm install
 ```
 
 ### 2. Configurar variaveis de ambiente
@@ -44,9 +59,11 @@ Executar o schema no PostgreSQL:
 psql $DATABASE_URL < ../database/schema.sql
 ```
 
-### 4. Iniciar
+### 4. Iniciar Backend
 
 ```bash
+cd api
+
 # Producao
 npm start
 
@@ -54,10 +71,26 @@ npm start
 npm run dev
 ```
 
-### 5. Verificar
+### 5. Iniciar Frontend
 
 ```bash
+cd frontend
+
+# Desenvolvimento (porta 5173, proxy para API na porta 3000)
+npm run dev
+
+# Build para producao
+npm run build
+```
+
+### 6. Verificar
+
+```bash
+# API
 curl http://localhost:3000/health
+
+# Frontend
+# Acessar http://localhost:5173
 ```
 
 ---
@@ -634,6 +667,33 @@ n8n (Cron diario 9h):
 
 ---
 
+## Frontend - Paginas
+
+| Pagina | Rota | Descricao |
+|--------|------|-----------|
+| Dashboard | `/` | Cards resumo (tarefas hoje, atrasadas, proximos 7 dias, projetos ativos), projetos em risco, tarefas do dia |
+| Projetos | `/projects` | Grid de projetos com filtro por status, botao criar projeto, progresso visual |
+| Detalhe Projeto | `/projects/:id` | Metricas (burn rate, horas, tarefas), kanban de tarefas, botao "Analisar Risco com IA" |
+| Tarefas | `/tasks` | Kanban com drag-and-drop (A Fazer, Em Andamento, Revisao, Concluido), filtro por projeto |
+| Atas | `/atas` | Lista de atas de reuniao com contadores de acoes/decisoes/riscos, filtro por projeto |
+| Detalhe Ata | `/atas/:id` | Markdown renderizado + tabs (Acoes, Decisoes, Riscos) com detalhes completos |
+| Alertas | `/alerts` | Tabs: Hoje, Atrasadas (com dias de atraso), Proximos 7 dias |
+| Relatorios | `/reports` | Lista de relatorios gerados, botao "Gerar Relatorio" (semanal/mensal/executivo), visualizador markdown |
+| Equipe | `/team` | Membros com stats de tarefas ativas, atrasadas e concluidas |
+
+### Configuracao do Frontend
+
+Criar `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:3000
+VITE_DEFAULT_ORG_ID=00000000-0000-0000-0000-000000000001
+```
+
+Em desenvolvimento, o Vite faz proxy automatico de `/api/*` para `localhost:3000`.
+
+---
+
 ## Estrutura do Projeto
 
 ```
@@ -653,6 +713,20 @@ projeto-pm-ia/
 │   │       └── transcription.js  # Orquestracao de transcricoes
 │   ├── package.json
 │   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ui/               # shadcn: Button, Card, Dialog, Badge, Tabs, etc
+│   │   │   ├── layout/           # Sidebar, Header, PageContainer
+│   │   │   └── shared/           # StatusBadge, PriorityBadge, MarkdownRenderer
+│   │   ├── pages/                # Dashboard, Projects, Tasks, Atas, Alerts, Reports, Team
+│   │   ├── hooks/                # useProjects, useTasks, useAtas, useAlerts, useReports
+│   │   ├── services/api.ts       # Fetch wrapper para /api/*
+│   │   ├── types/index.ts        # Interfaces TypeScript
+│   │   ├── lib/utils.ts          # cn(), formatDate(), formatCurrency()
+│   │   └── App.tsx               # Router + Layout
+│   ├── package.json
+│   └── .env.example
 ├── database/
 │   └── schema.sql                # Schema completo do PostgreSQL
 └── prompts/
@@ -666,9 +740,18 @@ projeto-pm-ia/
 
 ## Deploy (Easypanel)
 
+### Backend (API)
 1. Criar app no Easypanel apontando para o repo GitHub
 2. Configurar build path: `projeto-pm-ia/api`
 3. Adicionar servico PostgreSQL
 4. Configurar variaveis de ambiente
 5. Executar `schema.sql` no banco
+6. Deploy
+
+### Frontend
+1. Criar app separada no Easypanel
+2. Build path: `projeto-pm-ia/frontend`
+3. Build command: `npm run build`
+4. Publish directory: `dist`
+5. Configurar `VITE_API_URL` apontando para URL do backend
 6. Deploy
