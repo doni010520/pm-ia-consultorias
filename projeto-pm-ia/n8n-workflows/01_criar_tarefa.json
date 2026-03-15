@@ -1,0 +1,403 @@
+{
+  "name": "PM-IA: Criar Tarefa via WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-entrada",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "whatsapp-pm-ia"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-message",
+              "leftValue": "={{ $json.body?.message?.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-mensagem",
+      "name": "Tem Mensagem?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "query": "SELECT id, name, whatsapp FROM users WHERE organization_id = $1 AND is_active = true",
+        "options": {
+          "queryReplacement": "={{ [$json.organization_id || '00000000-0000-0000-0000-000000000001'] }}"
+        }
+      },
+      "id": "buscar-equipe",
+      "name": "Buscar Equipe",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-pm",
+          "name": "PostgreSQL PM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar dados para o LLM\nconst webhook = $input.first().json;\nconst teamMembers = $input.all().slice(1).map(item => item.json);\n\n// Formatar lista de membros\nconst membersList = teamMembers.map(m => `- ${m.name} (${m.whatsapp || 'sem whatsapp'})`).join('\\n');\n\n// Data atual formatada\nconst now = new Date();\nconst currentDateTime = now.toISOString();\n\nreturn {\n  currentDateTime,\n  organizationId: webhook.organization_id || '00000000-0000-0000-0000-000000000001',\n  organizationName: 'Consultoria Demo',\n  senderName: webhook.body?.sender?.name || 'Usuário',\n  senderWhatsapp: webhook.body?.sender?.id?.split('@')[0] || '',\n  userMessage: webhook.body?.message?.text || '',\n  teamMembers: membersList,\n  teamMembersRaw: teamMembers\n};"
+      },
+      "id": "preparar-contexto",
+      "name": "Preparar Contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4.1-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.promptCompleto }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "extrair-tarefa-llm",
+      "name": "Extrair Tarefa (LLM)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [1140, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-pm",
+          "name": "OpenAI PM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse da resposta do LLM\nconst llmResponse = $input.first().json;\nlet extracted;\n\ntry {\n  // O GPT retorna em message.content\n  const content = llmResponse.message?.content || llmResponse.text || llmResponse;\n  extracted = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  extracted = {\n    error: true,\n    message: 'Não consegui entender a mensagem. Pode reformular?'\n  };\n}\n\n// Recuperar contexto anterior\nconst context = $('Preparar Contexto').first().json;\n\n// Validar confiança\nconst needsConfirmation = extracted.confidence < 70 || extracted.needs_confirmation;\n\nreturn {\n  ...extracted,\n  needsConfirmation,\n  context\n};"
+      },
+      "id": "processar-resposta",
+      "name": "Processar Resposta LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "needs-confirmation",
+              "leftValue": "={{ $json.needsConfirmation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "verificar-confianca",
+      "name": "Precisa Confirmação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1580, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "tasks",
+        "columns": "organization_id, title, description, assignee_id, due_date, priority, source, ai_confidence",
+        "options": {
+          "queryReplacement": "={{ [$json.context.organizationId, $json.title, $json.description, $json.assignee_id, $json.due_date, $json.priority, 'whatsapp', $json.confidence] }}"
+        }
+      },
+      "id": "inserir-tarefa",
+      "name": "Inserir Tarefa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1800, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-pm",
+          "name": "PostgreSQL PM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.UAZAPI_URL }}/message/sendText/{{ $env.UAZAPI_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.context.senderWhatsapp }}\",\n  \"text\": \"✅ Tarefa criada!\\n\\n📌 *{{ $json.title }}*\\n👤 Responsável: {{ $json.assignee || 'Você' }}\\n📅 Prazo: {{ $json.due_date ? new Date($json.due_date).toLocaleDateString('pt-BR') : 'Não definido' }}\\n🎯 Prioridade: {{ $json.priority }}\\n\\nID: {{ $('Inserir Tarefa').first().json.id }}\"\n}",
+        "options": {}
+      },
+      "id": "confirmar-criacao",
+      "name": "Confirmar Criação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2020, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uazapi-auth",
+          "name": "Uazapi Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.UAZAPI_URL }}/message/sendText/{{ $env.UAZAPI_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.context.senderWhatsapp }}\",\n  \"text\": \"🤔 {{ $json.confirmation_message || 'Pode me dar mais detalhes sobre essa tarefa?' }}\"\n}",
+        "options": {}
+      },
+      "id": "pedir-confirmacao",
+      "name": "Pedir Confirmação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 400],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uazapi-auth",
+          "name": "Uazapi Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Processado' } }}",
+        "options": {}
+      },
+      "id": "resposta-webhook",
+      "name": "Resposta Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "ai_interactions",
+        "columns": "organization_id, type, input_text, output_structured, model, confidence, success",
+        "options": {}
+      },
+      "id": "log-interacao",
+      "name": "Log Interação IA",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2020, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-pm",
+          "name": "PostgreSQL PM"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Tem Mensagem?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem Mensagem?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Equipe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Equipe": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto": {
+      "main": [
+        [
+          {
+            "node": "Extrair Tarefa (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Tarefa (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Processar Resposta LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar Resposta LLM": {
+      "main": [
+        [
+          {
+            "node": "Precisa Confirmação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Precisa Confirmação?": {
+      "main": [
+        [
+          {
+            "node": "Inserir Tarefa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pedir Confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserir Tarefa": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Criação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar Criação": {
+      "main": [
+        [
+          {
+            "node": "Resposta Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Interação IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir Confirmação": {
+      "main": [
+        [
+          {
+            "node": "Resposta Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Interação IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "PM-IA"
+    },
+    {
+      "name": "WhatsApp"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+Classifique a mensagem do usuário em UMA das categorias abaixo.
+
+## CATEGORIAS
+
+CRIAR_TAREFA
+- Usuário quer criar, atribuir ou delegar uma tarefa
+- Exemplos: "criar tarefa", "pedir pro João", "preciso que alguém faça", "nova tarefa"
+
+STATUS_PROJETO
+- Pergunta sobre andamento geral de um projeto específico
+- Exemplos: "como está o projeto X", "status do projeto", "andamento do ABC"
+
+STATUS_TAREFAS
+- Pergunta sobre tarefas específicas ou lista de tarefas
+- Exemplos: "o que está pendente", "minhas tarefas", "o que falta fazer"
+
+STATUS_EQUIPE
+- Pergunta sobre carga de trabalho ou disponibilidade da equipe
+- Exemplos: "como está a equipe", "quem está livre", "carga de trabalho"
+
+ATRASADOS
+- Pergunta específica sobre itens atrasados
+- Exemplos: "o que está atrasado", "tarefas vencidas", "pendências"
+
+PROXIMAS_ENTREGAS
+- Pergunta sobre próximos deadlines ou entregas
+- Exemplos: "o que vence essa semana", "próximas entregas", "deadlines"
+
+FINANCEIRO
+- Pergunta sobre horas, faturamento ou custos
+- Exemplos: "quantas horas", "quanto faturamos", "custo do projeto"
+
+RELATORIO
+- Solicita geração de relatório
+- Exemplos: "gerar relatório", "preciso de um report", "resumo semanal"
+
+ATUALIZAR_TAREFA
+- Quer atualizar status ou informação de tarefa existente
+- Exemplos: "concluir tarefa", "marcar como feito", "atualizar prazo"
+
+OUTRO
+- Não se encaixa em nenhuma categoria acima
+- Saudações, perguntas genéricas, etc.
+
+## REGRAS
+1. Escolha APENAS UMA categoria
+2. Na dúvida entre duas, escolha a mais específica
+3. Saudações isoladas ("oi", "bom dia") = OUTRO
+
+## FORMATO DE RESPOSTA
+Responda APENAS com JSON válido:
+
+{
+  "category": "NOME_DA_CATEGORIA",
+  "confidence": 0-100,
+  "entities": {
+    "project_name": "nome se mencionado ou null",
+    "user_name": "nome se mencionado ou null",
+    "date_reference": "referência temporal se houver ou null"
+  }
+}
+
+## MENSAGEM
+{{userMessage}}

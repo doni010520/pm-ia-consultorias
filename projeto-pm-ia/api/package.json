@@ -1,0 +1,33 @@
+{
+  "name": "pm-ia-api",
+  "version": "1.0.0",
+  "description": "API para Sistema de Gestão de Projetos com IA",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "pg": "^8.11.5",
+    "@supabase/supabase-js": "^2.43.0",
+    "openai": "^4.47.0",
+    "@anthropic-ai/sdk": "^0.22.0",
+    "axios": "^1.6.8",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "date-fns": "^3.6.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
