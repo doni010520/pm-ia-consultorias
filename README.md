@@ -1,14 +1,47 @@
 # PM-IA - Sistema de Gestao de Projetos com IA
 
-Sistema completo (API + Frontend) para gestao de projetos de consultoria com processamento inteligente de transcricoes de reuniao. Recebe arquivos `.txt` de transcricoes, processa com IA (GPT-4.1-mini) e cria automaticamente projetos, atas, acoes, decisoes e riscos no PostgreSQL. Substitui o Notion como ferramenta de gestao.
+Sistema completo (API + Frontend) para gestao de projetos de consultoria com processamento inteligente de transcricoes de reuniao. Recebe arquivos `.txt` de transcricoes, processa com IA (OpenAI GPT-4.1-mini/GPT-4.1) e cria automaticamente projetos, atas, acoes, decisoes e riscos no PostgreSQL. Substitui o Notion como ferramenta de gestao.
+
+**Repositorio:** https://github.com/doni010520/pm-ia-consultorias
+
+---
+
+## Arquitetura
+
+```
+                    ┌─────────────┐
+                    │   Frontend  │  React + Vite + Tailwind
+                    │  (Nginx)    │  Porta 3000
+                    └──────┬──────┘
+                           │ /api/* (proxy)
+                    ┌──────▼──────┐
+                    │   Backend   │  Express.js
+                    │   (API)     │  Porta 3000
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+       ┌──────▼──────┐ ┌──▼───┐ ┌──────▼──────┐
+       │  PostgreSQL  │ │OpenAI│ │     n8n     │
+       │  (Supabase)  │ │ API  │ │  (WhatsApp) │
+       └─────────────┘ └──────┘ └─────────────┘
+```
+
+- **Frontend** serve arquivos estaticos via Nginx e faz proxy de `/api/*` para o backend
+- **Backend** e uma REST API que conecta ao banco e a OpenAI
+- **n8n** gerencia comunicacao via WhatsApp (recebe arquivos, envia notificacoes) e chama os endpoints HTTP da API
+- **WhatsApp NAO e gerenciado pela aplicacao** — todo o fluxo de mensagens e feito pelo n8n
+
+---
 
 ## Stack
 
 ### Backend (API)
-- **Runtime:** Node.js 18+
+- **Runtime:** Node.js 20
 - **Framework:** Express.js
-- **Banco:** PostgreSQL (ou Supabase)
-- **IA:** OpenAI (GPT-4.1-mini para volume + GPT-4.1 para qualidade)
+- **Banco:** PostgreSQL via conexao direta (pg) + Supabase SDK como fallback
+- **IA:** OpenAI (GPT-4.1-mini para volume, GPT-4.1 para qualidade)
+- **Docker:** Node.js Alpine com healthcheck
 
 ### Frontend
 - **Framework:** React 18 + TypeScript
@@ -18,14 +51,17 @@ Sistema completo (API + Frontend) para gestao de projetos de consultoria com pro
 - **Routing:** React Router DOM
 - **Icons:** Lucide React
 - **Datas:** date-fns (pt-BR)
+- **Docker:** Multi-stage (Node build + Nginx)
 
-## Setup
+---
+
+## Setup Local
 
 ### 1. Clonar e instalar
 
 ```bash
 git clone https://github.com/doni010520/pm-ia-consultorias.git
-cd pm-ia-consultorias/projeto-pm-ia
+cd pm-ia-consultorias
 
 # Backend
 cd api && npm install
@@ -36,65 +72,68 @@ cd ../frontend && npm install
 
 ### 2. Configurar variaveis de ambiente
 
-```bash
-cp .env.example .env
-```
-
-Editar `.env`:
-
+**Backend** (`api/.env`):
 ```env
 PORT=3000
+NODE_ENV=development
 DATABASE_URL=postgresql://user:pass@host:5432/pmia
 DEFAULT_ORGANIZATION_ID=00000000-0000-0000-0000-000000000001
 OPENAI_API_KEY=sk-...
-NODE_ENV=production
+```
+
+Se usar Supabase sem DATABASE_URL:
+```env
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...
+```
+
+> **Importante:** As rotas de alertas, projetos e relatorios usam SQL direto via `query()`, que requer `DATABASE_URL`. Sem ela, essas rotas retornam erro 500. A conexao Supabase SDK so funciona para funcoes especificas em `database.js` (createTask, getTasks, etc.).
+
+**Frontend** (`frontend/.env`):
+```env
+VITE_API_URL=http://localhost:3000
+VITE_DEFAULT_ORG_ID=00000000-0000-0000-0000-000000000001
 ```
 
 ### 3. Criar banco de dados
 
 Executar o schema no PostgreSQL:
-
 ```bash
-psql $DATABASE_URL < ../database/schema.sql
+psql $DATABASE_URL < database/schema.sql
 ```
 
-### 4. Iniciar Backend
+Ou no Supabase: SQL Editor → colar conteudo de `database/schema.sql` → executar.
 
-```bash
-cd api
+### 4. Dados iniciais
 
-# Producao
-npm start
+```sql
+INSERT INTO organizations (id, name, slug)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Minha Consultoria', 'minha-consultoria');
 
-# Desenvolvimento (com hot reload)
-npm run dev
+INSERT INTO users (organization_id, name, email, role)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Admin', 'admin@email.com', 'admin');
 ```
 
-### 5. Iniciar Frontend
+### 5. Iniciar
 
 ```bash
-cd frontend
+# Backend (porta 3000)
+cd api && npm start
 
-# Desenvolvimento (porta 5173, proxy para API na porta 3000)
-npm run dev
-
-# Build para producao
-npm run build
+# Frontend (porta 5173 com proxy para API)
+cd frontend && npm run dev
 ```
 
 ### 6. Verificar
 
 ```bash
-# API
 curl http://localhost:3000/health
-
-# Frontend
-# Acessar http://localhost:5173
+# {"status":"ok","timestamp":"...","version":"1.0.0"}
 ```
 
 ---
 
-## Endpoints
+## Endpoints da API (22 rotas)
 
 ### Health Check
 
@@ -104,7 +143,7 @@ curl http://localhost:3000/health
 
 ---
 
-### Projetos (`/api/projects`)
+### Projetos (`/api/projects`) — 9 rotas
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
@@ -119,142 +158,29 @@ curl http://localhost:3000/health
 | GET | `/api/projects/:id/time-entries` | Horas registradas |
 
 #### GET /api/projects
+Query: `organization_id`, `client_id`, `status` (active, paused, completed, cancelled)
 
-Lista todos os projetos da organizacao.
-
-**Query params:**
-- `organization_id` (opcional, usa DEFAULT_ORGANIZATION_ID)
-- `client_id` - filtrar por cliente
-- `status` - filtrar por status (active, paused, completed, cancelled)
-
-**Resposta:**
 ```json
-{
-  "projects": [
-    {
-      "id": "uuid",
-      "name": "Transformacao Digital ABC",
-      "status": "active",
-      "client_name": "Empresa ABC",
-      "total_tasks": 10,
-      "completed_tasks": 3,
-      "progress_percent": 30,
-      "budget_hours": 200,
-      "due_date": "2026-05-15"
-    }
-  ],
-  "count": 1
-}
+{ "projects": [{ "id": "uuid", "name": "...", "status": "active", "client_name": "...", "total_tasks": 10, "completed_tasks": 3 }], "count": 1 }
 ```
 
 #### POST /api/projects
-
-Cria um novo projeto.
-
-**Body:**
 ```json
-{
-  "name": "Nome do Projeto",
-  "description": "Descricao do projeto",
-  "client_id": "uuid-do-cliente",
-  "organization_id": "uuid-da-org",
-  "start_date": "2026-03-15",
-  "due_date": "2026-06-15",
-  "budget_hours": 200,
-  "budget_value": 30000,
-  "billing_type": "hourly"
-}
+{ "name": "Nome do Projeto", "description": "...", "client_id": "uuid", "start_date": "2026-03-15", "due_date": "2026-06-15", "budget_hours": 200, "budget_value": 30000, "billing_type": "hourly" }
 ```
 
 #### PATCH /api/projects/:id
-
-Atualiza campos de um projeto. Envie apenas os campos que deseja alterar.
-
-**Body (todos opcionais):**
-```json
-{
-  "name": "Novo nome",
-  "description": "Nova descricao",
-  "status": "paused",
-  "priority": "high",
-  "start_date": "2026-03-15",
-  "due_date": "2026-07-15",
-  "budget_hours": 250,
-  "budget_value": 40000,
-  "billing_type": "fixed",
-  "progress_percent": 45,
-  "client_id": "uuid",
-  "settings": {}
-}
-```
-
-#### GET /api/projects/:id/metrics
-
-Retorna metricas calculadas do projeto.
-
-**Resposta:**
-```json
-{
-  "metrics": {
-    "burn_rate": 0.65,
-    "overdue_ratio": 0.15,
-    "days_to_deadline": 45,
-    "progress_percent": 30,
-    "total_tasks": 10,
-    "overdue_tasks": 2,
-    "spent_hours": 130,
-    "budget_hours": 200,
-    "risk_score": 0.32
-  }
-}
-```
+Campos opcionais: `name`, `description`, `status`, `priority`, `start_date`, `due_date`, `completed_at`, `budget_hours`, `budget_value`, `billing_type`, `progress_percent`, `client_id`, `settings`
 
 #### GET /api/projects/:id/risk-analysis
-
-Analisa riscos do projeto usando IA (GPT-4.1).
-
-**Resposta:**
-```json
-{
-  "project": { "id": "uuid", "name": "Projeto", "client": "Cliente" },
-  "metrics": { "burn_rate": 0.85, "overdue_ratio": 0.3 },
-  "analysis": "Analise detalhada da IA...",
-  "model": "gpt-4.1",
-  "latency_ms": 2500
-}
-```
+Analisa riscos usando GPT-4.1. Retorna metricas + analise textual da IA.
 
 #### POST /api/projects/check-risks
-
-Verifica riscos de todos os projetos ativos. Ideal para cron diario.
-
-**Body:**
-```json
-{
-  "organization_id": "uuid"
-}
-```
-
-**Resposta:**
-```json
-{
-  "checked": 5,
-  "alerts_generated": 2,
-  "alerts": [
-    {
-      "project": { "id": "uuid", "name": "Projeto X", "client": "Cliente Y" },
-      "severity": "yellow",
-      "risk_score": 65,
-      "alert_id": "uuid",
-      "analysis": { "summary": "...", "recommended_actions": ["..."] }
-    }
-  ]
-}
-```
+Verifica todos os projetos ativos. Gera alertas para projetos com burn_rate > 0.8, overdue_ratio > 0.3, ou deadline < 7 dias. Ideal para cron diario via n8n.
 
 ---
 
-### Tarefas (`/api/tasks`)
+### Tarefas (`/api/tasks`) — 6 rotas
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
@@ -263,87 +189,26 @@ Verifica riscos de todos os projetos ativos. Ideal para cron diario.
 | POST | `/api/tasks/extract` | Extrair tarefa de texto com IA |
 | POST | `/api/tasks/from-extraction` | Criar tarefa a partir de extracao |
 | PATCH | `/api/tasks/:id` | Atualizar tarefa |
-| PATCH | `/api/tasks/:id/status` | Atualizar status da tarefa |
+| PATCH | `/api/tasks/:id/status` | Atualizar status |
 
 #### GET /api/tasks
-
-**Query params:**
-- `organization_id`
-- `project_id` - filtrar por projeto
-- `assignee_id` - filtrar por responsavel
-- `status` - filtrar por status (todo, in_progress, review, done, cancelled)
-- `limit` - limite de resultados (padrao: 50)
-
-#### POST /api/tasks
-
-**Body:**
-```json
-{
-  "organization_id": "uuid",
-  "project_id": "uuid",
-  "title": "Implementar login",
-  "description": "Criar tela de login com OAuth",
-  "assignee_id": "uuid",
-  "due_date": "2026-04-01",
-  "priority": "high"
-}
-```
+Query: `organization_id`, `project_id`, `assignee_id`, `status` (todo, in_progress, review, done, cancelled), `limit`
 
 #### POST /api/tasks/extract
-
-Extrai informacoes de tarefa a partir de texto livre usando IA.
-
-**Body:**
+Extrai tarefa de texto livre usando GPT-4.1-mini. Identifica titulo, responsavel, prazo e prioridade.
 ```json
-{
-  "message": "Pedro precisa entregar o relatorio financeiro ate sexta",
-  "organization_id": "uuid",
-  "sender_name": "Joao"
-}
-```
-
-**Resposta:**
-```json
-{
-  "extracted": {
-    "title": "Entregar relatorio financeiro",
-    "assignee": "Pedro Costa",
-    "due_date": "2026-03-21",
-    "priority": "high",
-    "confidence": 85
-  }
-}
-```
-
-#### PATCH /api/tasks/:id
-
-**Body (todos opcionais):**
-```json
-{
-  "title": "Novo titulo",
-  "description": "Nova descricao",
-  "assignee_id": "uuid",
-  "due_date": "2026-04-15",
-  "priority": "urgent",
-  "status": "in_progress",
-  "project_id": "uuid"
-}
+{ "message": "Pedro precisa entregar o relatorio financeiro ate sexta", "organization_id": "uuid", "sender_name": "Joao" }
 ```
 
 #### PATCH /api/tasks/:id/status
-
-**Body:**
 ```json
-{
-  "status": "done"
-}
+{ "status": "done" }
 ```
-
-Status possiveis: `todo`, `in_progress`, `review`, `done`, `cancelled`
+Status: `todo`, `in_progress`, `review`, `done`, `cancelled`
 
 ---
 
-### Transcricoes (`/api/transcriptions`)
+### Transcricoes (`/api/transcriptions`) — 6 rotas
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
@@ -355,132 +220,26 @@ Status possiveis: `todo`, `in_progress`, `review`, `done`, `cancelled`
 | GET | `/api/transcriptions/atas/:id` | Detalhe da ata |
 
 #### POST /api/transcriptions/upload
-
-Envia uma transcricao para processamento. O nome do arquivo deve seguir o padrao `[Cliente][Projeto][Consultor][Data].txt`.
-
-**Body:**
+Nome do arquivo deve seguir o padrao: `[Cliente][Projeto][Consultor][Data].txt`
 ```json
-{
-  "fileName": "[Empresa ABC][Transformacao Digital][Joao Silva][15032026].txt",
-  "content": "Texto completo da transcricao da reuniao...",
-  "organization_id": "uuid",
-  "auto_confirm": false
-}
+{ "fileName": "[Empresa ABC][Transformacao Digital][Joao Silva][15032026].txt", "content": "Texto da transcricao...", "organization_id": "uuid", "auto_confirm": false }
 ```
-
-- `auto_confirm: true` - processa imediatamente com IA
-- `auto_confirm: false` (padrao) - salva como pendente, aguarda confirmacao
-
-**Resposta:**
-```json
-{
-  "transcription": {
-    "id": "uuid",
-    "chave": "empresa_abc_transformacao_digital_joao_silva_2026-03-15",
-    "status": "aguardando_confirmacao",
-    "cliente_nome": "Empresa ABC",
-    "projeto_nome": "Transformacao Digital",
-    "consultor_nome": "Joao Silva",
-    "data_reuniao": "2026-03-15"
-  },
-  "message": "Transcricao salva. Use POST /api/transcriptions/:chave/confirm para processar."
-}
-```
+- `auto_confirm: true` — processa imediatamente com IA
+- `auto_confirm: false` — salva como pendente, aguarda confirmacao
 
 #### POST /api/transcriptions/:chave/confirm
-
-Processa a transcricao com IA e cria automaticamente:
+Processa a transcricao com IA (GPT-4.1-mini) e cria automaticamente:
 - Projeto (ou encontra existente)
-- Ata de reuniao
+- Ata de reuniao com resumo
 - Acoes com responsavel e prazo
-- Decisoes
-- Riscos
-
-**Body:**
-```json
-{
-  "organization_id": "uuid"
-}
-```
-
-**Resposta:**
-```json
-{
-  "success": true,
-  "project": { "id": "uuid", "name": "Transformacao Digital" },
-  "ata": {
-    "id": "uuid",
-    "titulo": "Ata - Reuniao de Kickoff",
-    "data_reuniao": "2026-03-15",
-    "participantes": "Joao, Maria, Pedro",
-    "resumo": "Reuniao de alinhamento inicial..."
-  },
-  "acoes": [
-    {
-      "descricao": "Levantar requisitos do modulo financeiro",
-      "responsavel": "Pedro Costa",
-      "prazo": "2026-03-22",
-      "tipo": "Analise",
-      "evidencia_minima": "Documento de requisitos"
-    }
-  ],
-  "decisoes": [
-    {
-      "descricao": "Usar metodologia agil com sprints de 2 semanas",
-      "responsavel": "Joao Silva",
-      "impacto": "Alto"
-    }
-  ],
-  "riscos": [
-    {
-      "descricao": "Equipe do cliente sem disponibilidade",
-      "probabilidade": "Media",
-      "impacto": "Alto",
-      "mitigacao": "Agendar horarios fixos semanais"
-    }
-  ]
-}
-```
-
-#### GET /api/transcriptions
-
-**Query params:**
-- `organization_id`
-- `status` - filtrar por status (aguardando_confirmacao, processando, processado, erro)
-- `limit` - limite (padrao: 50)
-
-#### GET /api/transcriptions/atas/list
-
-**Query params:**
-- `organization_id`
-- `project_id` - filtrar por projeto
-- `limit` - limite (padrao: 50)
-
-#### GET /api/transcriptions/atas/:id
-
-Retorna ata completa com acoes, decisoes e riscos.
-
-**Resposta:**
-```json
-{
-  "id": "uuid",
-  "titulo": "Ata - Reuniao de Kickoff",
-  "data_reuniao": "2026-03-15",
-  "participantes": "Joao, Maria, Pedro",
-  "resumo": "...",
-  "conteudo_markdown": "# Ata completa em markdown...",
-  "project_name": "Transformacao Digital",
-  "acoes": [...],
-  "decisoes": [...],
-  "riscos": [...]
-}
-```
+- Decisoes com impacto
+- Riscos com probabilidade, impacto e mitigacao
 
 ---
 
-### Alertas e Notificacoes (`/api/alerts`)
+### Alertas e Notificacoes (`/api/alerts`) — 3 rotas
 
-Endpoints para alimentar tela de notificacoes da app e integracao com n8n (envio via WhatsApp).
+Endpoints para alimentar tela de notificacoes e integracao com n8n.
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
@@ -488,147 +247,83 @@ Endpoints para alimentar tela de notificacoes da app e integracao com n8n (envio
 | GET | `/api/alerts/overdue` | Tarefas atrasadas |
 | GET | `/api/alerts/summary` | Resumo consolidado |
 
-#### GET /api/alerts/today
-
-**Query params:**
-- `organization_id`
-- `project_id` - filtrar por projeto
-- `assignee_id` - filtrar por responsavel
-
-**Resposta:**
-```json
-{
-  "date": "2026-03-15",
-  "tasks": [
-    {
-      "id": "uuid",
-      "title": "Entregar relatorio",
-      "priority": "high",
-      "assignee_name": "Pedro Costa",
-      "project_name": "Transformacao Digital",
-      "client_name": "Empresa ABC"
-    }
-  ],
-  "total": 1
-}
-```
-
-#### GET /api/alerts/overdue
-
-**Query params:**
-- `organization_id`
-- `project_id`
-- `assignee_id`
-
-**Resposta:**
-```json
-{
-  "tasks": [
-    {
-      "id": "uuid",
-      "title": "Revisar contrato",
-      "priority": "urgent",
-      "days_overdue": 3,
-      "assignee_name": "Maria Santos",
-      "project_name": "Transformacao Digital"
-    }
-  ],
-  "total": 1
-}
-```
+Todos aceitam: `organization_id`, `project_id`, `assignee_id`
 
 #### GET /api/alerts/summary
-
-Resumo consolidado ideal para n8n montar mensagem de notificacao diaria.
-
-**Query params:**
-- `organization_id`
-- `project_id` (opcional - filtra tarefas por projeto)
-
-**Resposta:**
+Resumo ideal para n8n montar mensagem de notificacao diaria:
 ```json
 {
   "date": "2026-03-15",
-  "today": {
-    "tasks": [{ "title": "...", "priority": "high", "assignee_name": "...", "project_name": "..." }],
-    "total": 2
-  },
-  "overdue": {
-    "tasks": [{ "title": "...", "priority": "urgent", "assignee_name": "...", "days_overdue": 3 }],
-    "total": 1
-  },
-  "upcoming_7_days": {
-    "tasks": [{ "title": "...", "due_date": "2026-03-20", "assignee_name": "..." }],
-    "total": 5
-  },
-  "risky_projects": {
-    "projects": [{ "name": "Projeto X", "overdue_tasks": 4, "total_open_tasks": 12 }],
-    "total": 1
-  }
+  "today": { "tasks": [...], "total": 2 },
+  "overdue": { "tasks": [...], "total": 1 },
+  "upcoming_7_days": { "tasks": [...], "total": 5 },
+  "risky_projects": { "projects": [...], "total": 1 }
 }
 ```
 
 ---
 
-### Relatorios (`/api/reports`)
+### Relatorios (`/api/reports`) — 3 rotas
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
-| GET | `/api/reports` | Listar relatorios gerados |
+| GET | `/api/reports` | Listar relatorios |
 | POST | `/api/reports/generate` | Gerar relatorio com IA |
 | GET | `/api/reports/:id` | Detalhe de um relatorio |
 
 #### POST /api/reports/generate
-
-Gera relatorio executivo usando IA (GPT-4.1).
-
-**Body:**
+Gera relatorio executivo usando GPT-4.1.
 ```json
-{
-  "project_id": "uuid",
-  "organization_id": "uuid",
-  "type": "weekly_status",
-  "period_start": "2026-03-08",
-  "period_end": "2026-03-15"
-}
+{ "project_id": "uuid", "organization_id": "uuid", "type": "weekly_status", "period_start": "2026-03-08", "period_end": "2026-03-15" }
 ```
-
 Tipos: `weekly_status`, `monthly_closing`, `executive_summary`
 
 ---
 
 ## Integracao com n8n
 
-A aplicacao foi projetada para funcionar em conjunto com n8n, que gerencia o WhatsApp.
+A aplicacao foi projetada para funcionar com n8n, que gerencia toda a comunicacao via WhatsApp.
 
 ### Fluxo de transcricao
-
 ```
-n8n (WhatsApp):
-  1. Usuario envia .txt pelo WhatsApp
-  2. n8n recebe e salva em transcricoes_pendentes (INSERT direto no PostgreSQL)
-  3. n8n pede confirmacao ao usuario
-  4. Usuario confirma → n8n chama POST /api/transcriptions/:chave/confirm
-  5. App processa com IA → cria projeto + ata + acoes/decisoes/riscos
-  6. n8n recebe resposta → envia resumo pelo WhatsApp
+1. Usuario envia .txt pelo WhatsApp
+2. n8n recebe e faz INSERT direto no PostgreSQL (tabela transcricoes_pendentes)
+3. n8n pede confirmacao ao usuario
+4. Usuario confirma → n8n chama POST /api/transcriptions/:chave/confirm
+5. API processa com IA → cria projeto + ata + acoes/decisoes/riscos
+6. n8n recebe resposta → envia resumo pelo WhatsApp
 ```
 
 ### Notificacoes diarias
-
 ```
-n8n (Cron diario 8h):
+n8n (Cron 8h):
   1. GET /api/alerts/summary → recebe resumo
-  2. Formata mensagem para WhatsApp
-  3. Envia para gestores
+  2. Formata mensagem
+  3. Envia para gestores via WhatsApp
 ```
 
 ### Verificacao de riscos
-
 ```
-n8n (Cron diario 9h):
+n8n (Cron 9h):
   1. POST /api/projects/check-risks → analisa todos os projetos
-  2. Se houver alertas, envia via WhatsApp
+  2. Se houver alertas → envia via WhatsApp
 ```
+
+---
+
+## Frontend — Paginas
+
+| Pagina | Rota | Descricao |
+|--------|------|-----------|
+| Dashboard | `/` | Cards resumo, projetos em risco, tarefas do dia |
+| Projetos | `/projects` | Grid de projetos com filtro por status, criar projeto |
+| Detalhe Projeto | `/projects/:id` | Metricas, kanban de tarefas, analise de risco com IA |
+| Tarefas | `/tasks` | Kanban (A Fazer, Em Andamento, Revisao, Concluido) |
+| Atas | `/atas` | Lista de atas com contadores de acoes/decisoes/riscos |
+| Detalhe Ata | `/atas/:id` | Markdown renderizado + tabs (Acoes, Decisoes, Riscos) |
+| Alertas | `/alerts` | Tabs: Hoje, Atrasadas, Proximos 7 dias |
+| Relatorios | `/reports` | Lista + gerar relatorio (semanal/mensal/executivo) |
+| Equipe | `/team` | Membros com stats de tarefas |
 
 ---
 
@@ -648,109 +343,162 @@ n8n (Cron diario 9h):
 | `ai_interactions` | Log de chamadas a IA |
 | `risk_alerts` | Alertas de risco |
 | `reports` | Relatorios gerados |
-| `transcricoes_pendentes` | Fila de transcricoes |
+| `transcricoes_pendentes` | Fila de transcricoes (usada pelo n8n) |
 | `atas` | Atas de reuniao |
 | `ata_acoes` | Acoes extraidas |
 | `ata_decisoes` | Decisoes registradas |
 | `ata_riscos` | Riscos identificados |
 
 ### Views
-
-- `v_project_status` - Status resumido de projetos com contadores
-- `v_user_workload` - Carga de trabalho por usuario
+- `v_project_status` — Status resumido de projetos com contadores
+- `v_user_workload` — Carga de trabalho por usuario
 
 ### Funcoes
-
-- `find_user_by_name(org_id, name)` - Busca fuzzy de usuario por nome
-- `calculate_project_risk(project_id)` - Calcula metricas de risco
-
----
-
-## Frontend - Paginas
-
-| Pagina | Rota | Descricao |
-|--------|------|-----------|
-| Dashboard | `/` | Cards resumo (tarefas hoje, atrasadas, proximos 7 dias, projetos ativos), projetos em risco, tarefas do dia |
-| Projetos | `/projects` | Grid de projetos com filtro por status, botao criar projeto, progresso visual |
-| Detalhe Projeto | `/projects/:id` | Metricas (burn rate, horas, tarefas), kanban de tarefas, botao "Analisar Risco com IA" |
-| Tarefas | `/tasks` | Kanban com drag-and-drop (A Fazer, Em Andamento, Revisao, Concluido), filtro por projeto |
-| Atas | `/atas` | Lista de atas de reuniao com contadores de acoes/decisoes/riscos, filtro por projeto |
-| Detalhe Ata | `/atas/:id` | Markdown renderizado + tabs (Acoes, Decisoes, Riscos) com detalhes completos |
-| Alertas | `/alerts` | Tabs: Hoje, Atrasadas (com dias de atraso), Proximos 7 dias |
-| Relatorios | `/reports` | Lista de relatorios gerados, botao "Gerar Relatorio" (semanal/mensal/executivo), visualizador markdown |
-| Equipe | `/team` | Membros com stats de tarefas ativas, atrasadas e concluidas |
-
-### Configuracao do Frontend
-
-Criar `frontend/.env`:
-
-```env
-VITE_API_URL=http://localhost:3000
-VITE_DEFAULT_ORG_ID=00000000-0000-0000-0000-000000000001
-```
-
-Em desenvolvimento, o Vite faz proxy automatico de `/api/*` para `localhost:3000`.
+- `find_user_by_name(org_id, name)` — Busca fuzzy de usuario por nome
+- `calculate_project_risk(project_id)` — Calcula metricas de risco
 
 ---
 
 ## Estrutura do Projeto
 
 ```
-projeto-pm-ia/
+pm-ia-consultorias/
 ├── api/
-│   ├── src/
-│   │   ├── index.js              # Servidor Express
-│   │   ├── routes/
-│   │   │   ├── projects.js       # CRUD de projetos + analise de risco
-│   │   │   ├── tasks.js          # CRUD de tarefas + extracao com IA
-│   │   │   ├── reports.js        # Geracao de relatorios com IA
-│   │   │   ├── transcriptions.js # Upload e processamento de transcricoes
-│   │   │   └── alerts.js         # Alertas e notificacoes
-│   │   └── services/
-│   │       ├── ai.js             # OpenAI (GPT-4.1-mini + GPT-4.1)
-│   │       ├── database.js       # PostgreSQL + Supabase
-│   │       └── transcription.js  # Orquestracao de transcricoes
+│   ├── Dockerfile              # Node.js 20 Alpine + healthcheck
+│   ├── .dockerignore
 │   ├── package.json
-│   └── .env.example
+│   ├── .env.example
+│   └── src/
+│       ├── index.js            # Servidor Express (porta 3000)
+│       ├── routes/
+│       │   ├── projects.js     # CRUD projetos + analise de risco
+│       │   ├── tasks.js        # CRUD tarefas + extracao com IA
+│       │   ├── reports.js      # Geracao de relatorios com IA
+│       │   ├── transcriptions.js # Upload e processamento de transcricoes
+│       │   └── alerts.js       # Alertas e notificacoes
+│       └── services/
+│           ├── ai.js           # OpenAI (GPT-4.1-mini + GPT-4.1)
+│           ├── database.js     # PostgreSQL direto + Supabase SDK
+│           └── transcription.js # Orquestracao de transcricoes
 ├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/               # shadcn: Button, Card, Dialog, Badge, Tabs, etc
-│   │   │   ├── layout/           # Sidebar, Header, PageContainer
-│   │   │   └── shared/           # StatusBadge, PriorityBadge, MarkdownRenderer
-│   │   ├── pages/                # Dashboard, Projects, Tasks, Atas, Alerts, Reports, Team
-│   │   ├── hooks/                # useProjects, useTasks, useAtas, useAlerts, useReports
-│   │   ├── services/api.ts       # Fetch wrapper para /api/*
-│   │   ├── types/index.ts        # Interfaces TypeScript
-│   │   ├── lib/utils.ts          # cn(), formatDate(), formatCurrency()
-│   │   └── App.tsx               # Router + Layout
+│   ├── Dockerfile              # Multi-stage: Node build + Nginx
+│   ├── nginx.conf              # Proxy /api/* para backend, SPA fallback
+│   ├── .dockerignore
 │   ├── package.json
-│   └── .env.example
+│   └── src/
+│       ├── components/
+│       │   ├── ui/             # shadcn: Button, Card, Dialog, Badge, etc
+│       │   ├── layout/         # Sidebar, Header, PageContainer
+│       │   └── shared/         # StatusBadge, PriorityBadge, MarkdownRenderer
+│       ├── pages/              # Dashboard, Projects, Tasks, Atas, Alerts, Reports, Team
+│       ├── hooks/              # useProjects, useTasks, useAtas, useAlerts, useReports
+│       ├── services/api.ts     # Fetch wrapper para /api/*
+│       ├── types/index.ts      # Interfaces TypeScript
+│       └── App.tsx             # Router + Layout
 ├── database/
-│   └── schema.sql                # Schema completo do PostgreSQL
-└── prompts/
-    ├── processar_transcricao.txt  # Prompt PMO para transcricoes
-    ├── extrair_tarefa.txt         # Extracao de tarefa de texto
-    ├── analisar_risco.txt         # Analise de risco de projeto
-    └── gerar_relatorio.txt        # Geracao de relatorio executivo
+│   └── schema.sql              # Schema completo do PostgreSQL
+├── prompts/
+│   ├── processar_transcricao.txt
+│   ├── extrair_tarefa.txt
+│   ├── analisar_risco.txt
+│   └── gerar_relatorio.txt
+├── n8n-workflows/
+│   └── 01_criar_tarefa.json
+├── DEPLOY_EASYPANEL.md
+└── README.md
 ```
 
 ---
 
 ## Deploy (Easypanel)
 
-### Backend (API)
-1. Criar app no Easypanel apontando para o repo GitHub
-2. Configurar build path: `projeto-pm-ia/api`
-3. Adicionar servico PostgreSQL
-4. Configurar variaveis de ambiente
-5. Executar `schema.sql` no banco
-6. Deploy
+### Pre-requisitos
+- Easypanel instalado na VPS
+- Conta Supabase (ou PostgreSQL proprio)
+- Chave OpenAI
 
-### Frontend
-1. Criar app separada no Easypanel
-2. Build path: `projeto-pm-ia/frontend`
-3. Build command: `npm run build`
-4. Publish directory: `dist`
-5. Configurar `VITE_API_URL` apontando para URL do backend
-6. Deploy
+### Backend (`pm-ia-api`)
+
+1. Nova app no Easypanel → GitHub → `doni010520/pm-ia-consultorias`
+2. Branch: `main`, Build Path: `/api`
+3. Build type: Dockerfile
+
+**Variaveis de ambiente:**
+
+| Variavel | Valor |
+|----------|-------|
+| `PORT` | `3000` |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | `postgresql://postgres.xxx:senha@pooler.supabase.com:6543/postgres` |
+| `DEFAULT_ORGANIZATION_ID` | `00000000-0000-0000-0000-000000000001` |
+| `OPENAI_API_KEY` | `sk-...` |
+
+Opcionais (se usar Supabase SDK tambem):
+| `SUPABASE_URL` | `https://xxx.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | `eyJ...` |
+
+Porta do dominio: **3000**
+
+### Frontend (`pm-ia-frontend`)
+
+1. Nova app no Easypanel → GitHub → `doni010520/pm-ia-consultorias`
+2. Branch: `main`, Build Path: `/frontend`
+3. Build type: Dockerfile
+
+**Build Args:**
+
+| Variavel | Valor |
+|----------|-------|
+| `VITE_API_URL` | (vazio — nginx faz proxy) |
+| `VITE_DEFAULT_ORG_ID` | `00000000-0000-0000-0000-000000000001` |
+
+Porta do dominio: **3000** (Nginx escuta na 3000)
+
+### Rede Interna
+
+O Nginx do frontend faz proxy de `/api/*` para `pm-ia-api:3000`. Para funcionar:
+- Ambas as apps devem estar no **mesmo projeto** no Easypanel
+- O nome da app backend **deve ser** `pm-ia-api` (corresponde ao `proxy_pass` no `nginx.conf`)
+- Se usar outro nome, editar `frontend/nginx.conf`:
+  ```
+  proxy_pass http://NOME-DA-SUA-APP:3000;
+  ```
+
+### Supabase — Connection String
+
+Para obter a `DATABASE_URL` do Supabase:
+1. Settings → Database → Connection string → URI
+2. Selecionar modo Transaction (porta 6543)
+3. Substituir `[YOUR-PASSWORD]` pela senha do banco (sem colchetes)
+4. Se esqueceu a senha: Settings → Database → Reset database password
+
+### Verificacao
+
+```bash
+# Backend
+curl https://api.seudominio.com/health
+
+# Frontend
+# Acessar https://app.seudominio.com
+```
+
+---
+
+## Prompts de IA
+
+Os prompts ficam em `/prompts/` e sao carregados em tempo de execucao:
+
+| Arquivo | Uso | Modelo |
+|---------|-----|--------|
+| `processar_transcricao.txt` | Processar transcricao de reuniao → ata + acoes + decisoes + riscos | GPT-4.1-mini |
+| `extrair_tarefa.txt` | Extrair tarefa de mensagem de texto livre | GPT-4.1-mini |
+| `analisar_risco.txt` | Analisar riscos de um projeto | GPT-4.1 |
+| `gerar_relatorio.txt` | Gerar relatorio executivo | GPT-4.1 |
+
+O formato de saida do processamento de transcricao e `JSON|||MARKDOWN` — a IA retorna dados estruturados (JSON) separados do conteudo da ata (Markdown) pelo delimitador `|||`.
+
+---
+
+## Licenca
+
+Projeto privado de uso interno.
