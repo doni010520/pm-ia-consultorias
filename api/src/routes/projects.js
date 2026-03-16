@@ -381,4 +381,56 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
+/**
+ * DELETE /api/projects/:id
+ * Exclui um projeto e todos os dados relacionados (atas, acoes, decisoes, riscos, tarefas, etc.)
+ */
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar se projeto existe
+    const check = await query('SELECT id, name FROM projects WHERE id = $1', [id]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Projeto nao encontrado' } });
+    }
+
+    const projectName = check.rows[0].name;
+
+    // Deletar em cascata (ordem importa por causa das foreign keys)
+    // 1. Acoes, decisoes e riscos das atas do projeto
+    await query(`DELETE FROM ata_acoes WHERE ata_id IN (SELECT id FROM atas WHERE project_id = $1)`, [id]);
+    await query(`DELETE FROM ata_decisoes WHERE ata_id IN (SELECT id FROM atas WHERE project_id = $1)`, [id]);
+    await query(`DELETE FROM ata_riscos WHERE ata_id IN (SELECT id FROM atas WHERE project_id = $1)`, [id]);
+
+    // 2. Atas
+    await query('DELETE FROM atas WHERE project_id = $1', [id]);
+
+    // 3. Tarefas
+    await query('DELETE FROM tasks WHERE project_id = $1', [id]);
+
+    // 4. Time entries
+    await query('DELETE FROM time_entries WHERE project_id = $1', [id]);
+
+    // 5. Risk alerts
+    await query('DELETE FROM risk_alerts WHERE project_id = $1', [id]);
+
+    // 6. Reports
+    await query('DELETE FROM reports WHERE project_id = $1', [id]);
+
+    // 7. Project members
+    await query('DELETE FROM project_members WHERE project_id = $1', [id]);
+
+    // 8. Transcricoes pendentes
+    await query('DELETE FROM transcricoes_pendentes WHERE projeto_id = $1', [id]);
+
+    // 9. Projeto
+    await query('DELETE FROM projects WHERE id = $1', [id]);
+
+    res.json({ deleted: true, project: { id, name: projectName } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

@@ -61,6 +61,10 @@ export const projectsApi = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  delete: (id: string) =>
+    request<{ deleted: boolean; project: { id: string; name: string } }>(`/api/projects/${id}`, {
+      method: 'DELETE',
+    }),
 }
 
 // Tasks

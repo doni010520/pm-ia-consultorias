@@ -299,6 +299,36 @@ export async function confirmAndProcess(chave, organizationId) {
           ]
         );
         acoes.push(acaoResult.rows[0]);
+
+        // Criar tarefa automaticamente a partir da ação
+        if (acaoResult.rows[0]) {
+          const acaoData = acaoResult.rows[0];
+          const taskResult = await client.query(
+            `INSERT INTO tasks (
+              organization_id, project_id, title, description,
+              assignee_id, due_date, status, priority, source
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+            [
+              orgId,
+              projectId,
+              acaoData.descricao?.substring(0, 200) || 'Ação da reunião',
+              acaoData.descricao,
+              acaoData.responsavel_id,
+              acaoData.prazo,
+              'todo',
+              'medium',
+              'ata'
+            ]
+          );
+
+          // Atualizar ação com o task_id
+          if (taskResult.rows[0]) {
+            await client.query(
+              'UPDATE ata_acoes SET task_id = $1 WHERE id = $2',
+              [taskResult.rows[0].id, acaoData.id]
+            );
+          }
+        }
       }
     }
 

@@ -1,5 +1,5 @@
-import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Brain, Clock, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { ArrowLeft, Brain, Clock, CheckCircle, AlertTriangle, TrendingUp, Trash2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +8,7 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { LoadingSpinner, ErrorState } from '@/components/shared/LoadingSpinner'
-import { useProject, useProjectMetrics, useProjectTasks, useProjectRiskAnalysis } from '@/hooks/useProjects'
+import { useProject, useProjectMetrics, useProjectTasks, useProjectRiskAnalysis, useDeleteProject } from '@/hooks/useProjects'
 import { formatDate, formatHours } from '@/lib/utils'
 import { useState } from 'react'
 
@@ -18,12 +18,25 @@ export default function ProjectDetail() {
   const { data: metricsData } = useProjectMetrics(id!)
   const { data: tasksData } = useProjectTasks(id!)
   const riskAnalysis = useProjectRiskAnalysis(id!)
+  const deleteProject = useDeleteProject()
+  const navigate = useNavigate()
   const [analyzingRisk, setAnalyzingRisk] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const handleAnalyzeRisk = async () => {
     setAnalyzingRisk(true)
     await riskAnalysis.refetch()
     setAnalyzingRisk(false)
+  }
+
+  const handleDelete = async () => {
+    if (!id) return
+    try {
+      await deleteProject.mutateAsync(id)
+      navigate('/projects')
+    } catch (err) {
+      console.error('Erro ao excluir projeto:', err)
+    }
   }
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
@@ -57,10 +70,28 @@ export default function ProjectDetail() {
             {project.due_date && ` | Prazo: ${formatDate(project.due_date)}`}
           </p>
         </div>
-        <Button onClick={handleAnalyzeRisk} disabled={analyzingRisk} variant="outline">
-          <Brain className="h-4 w-4 mr-1" />
-          {analyzingRisk ? 'Analisando...' : 'Analisar Risco com IA'}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleAnalyzeRisk} disabled={analyzingRisk} variant="outline">
+            <Brain className="h-4 w-4 mr-1" />
+            {analyzingRisk ? 'Analisando...' : 'Analisar Risco com IA'}
+          </Button>
+          {!showDeleteConfirm ? (
+            <Button onClick={() => setShowDeleteConfirm(true)} variant="outline" className="text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground">
+              <Trash2 className="h-4 w-4 mr-1" />
+              Excluir
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2 bg-destructive/10 px-3 py-1 rounded-md">
+              <span className="text-sm text-destructive font-medium">Excluir projeto e todos os dados?</span>
+              <Button onClick={handleDelete} size="sm" variant="destructive" disabled={deleteProject.isPending}>
+                {deleteProject.isPending ? 'Excluindo...' : 'Confirmar'}
+              </Button>
+              <Button onClick={() => setShowDeleteConfirm(false)} size="sm" variant="ghost">
+                Cancelar
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Risk Analysis Result */}
