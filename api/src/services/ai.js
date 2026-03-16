@@ -25,7 +25,7 @@ initAI();
  * Carrega template de prompt
  */
 function loadPromptTemplate(name) {
-  const promptPath = path.join(__dirname, '../../..', 'prompts', `${name}.txt`);
+  const promptPath = path.join(__dirname, '../..', 'prompts', `${name}.txt`);
   
   if (fs.existsSync(promptPath)) {
     return fs.readFileSync(promptPath, 'utf-8');
