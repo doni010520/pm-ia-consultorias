@@ -27,9 +27,9 @@ const navItems = [
 function NavContent() {
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6">
-        <h1 className="text-xl font-bold text-primary">PM-IA</h1>
-        <p className="text-xs text-muted-foreground mt-1">Gestao de Projetos</p>
+      <div className="p-6 flex items-center gap-3">
+        <img src="/logo.png" alt="PM-IA" className="h-9 w-auto" onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextSibling as HTMLElement)?.style.removeProperty('display'); }} />
+        <span className="text-xl font-bold text-sidebar-foreground" style={{ display: 'none' }}>PM-IA</span>
       </div>
       <nav className="flex-1 px-3 space-y-1">
         {navItems.map((item) => (
@@ -41,8 +41,8 @@ function NavContent() {
               cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-sidebar-accent text-white'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-muted hover:text-sidebar-foreground'
               )
             }
           >
@@ -57,7 +57,7 @@ function NavContent() {
 
 export function Sidebar() {
   return (
-    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r bg-card">
+    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r bg-sidebar">
       <NavContent />
     </aside>
   )
@@ -72,7 +72,7 @@ export function MobileSidebar() {
           <Menu className="h-5 w-5" />
         </Button>
       </SheetTrigger>
-      <SheetContent onClick={() => setOpen(false)}>
+      <SheetContent onClick={() => setOpen(false)} className="bg-sidebar p-0">
         <NavContent />
       </SheetContent>
     </Sheet>
