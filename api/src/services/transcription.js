@@ -435,7 +435,7 @@ export async function getAtaById(id) {
   ]);
 
   return {
-    ...ata,
+    ata,
     acoes: acoesResult.rows,
     decisoes: decisoesResult.rows,
     riscos: riscosResult.rows
