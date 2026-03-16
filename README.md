@@ -133,7 +133,7 @@ curl http://localhost:3000/health
 
 ---
 
-## Endpoints da API (22 rotas)
+## Endpoints da API (23 rotas)
 
 ### Health Check
 
@@ -143,7 +143,7 @@ curl http://localhost:3000/health
 
 ---
 
-### Projetos (`/api/projects`) — 9 rotas
+### Projetos (`/api/projects`) — 10 rotas
 
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
@@ -151,6 +151,7 @@ curl http://localhost:3000/health
 | GET | `/api/projects/:id` | Detalhes de um projeto |
 | POST | `/api/projects` | Criar projeto |
 | PATCH | `/api/projects/:id` | Atualizar projeto |
+| DELETE | `/api/projects/:id` | Excluir projeto e todos os dados |
 | GET | `/api/projects/:id/metrics` | Metricas do projeto |
 | GET | `/api/projects/:id/risk-analysis` | Analise de risco com IA |
 | POST | `/api/projects/check-risks` | Verificar riscos de todos os projetos |
@@ -171,6 +172,13 @@ Query: `organization_id`, `client_id`, `status` (active, paused, completed, canc
 
 #### PATCH /api/projects/:id
 Campos opcionais: `name`, `description`, `status`, `priority`, `start_date`, `due_date`, `completed_at`, `budget_hours`, `budget_value`, `billing_type`, `progress_percent`, `client_id`, `settings`
+
+#### DELETE /api/projects/:id
+Exclui o projeto e **todos os dados relacionados** em cascata: atas (acoes, decisoes, riscos), tarefas, time entries, reports, risk alerts, project members e transcricoes. O frontend exibe botao de exclusao com confirmacao na tela de detalhe do projeto.
+
+```json
+{ "deleted": true, "project": { "id": "uuid", "name": "Projeto X" } }
+```
 
 #### GET /api/projects/:id/risk-analysis
 Analisa riscos usando GPT-4.1. Retorna metricas + analise textual da IA.
@@ -231,7 +239,7 @@ Nome do arquivo deve seguir o padrao: `[Cliente][Projeto][Consultor][Data].txt`
 Processa a transcricao com IA (GPT-4.1-mini) e cria automaticamente:
 - Projeto (ou encontra existente)
 - Ata de reuniao com resumo
-- Acoes com responsavel e prazo
+- Acoes com responsavel e prazo → **cada acao cria automaticamente uma tarefa** no kanban (status `todo`)
 - Decisoes com impacto
 - Riscos com probabilidade, impacto e mitigacao
 
@@ -290,7 +298,7 @@ A aplicacao foi projetada para funcionar com n8n, que gerencia toda a comunicaca
 2. n8n recebe e faz INSERT direto no PostgreSQL (tabela transcricoes_pendentes)
 3. n8n pede confirmacao ao usuario
 4. Usuario confirma → n8n chama POST /api/transcriptions/:chave/confirm
-5. API processa com IA → cria projeto + ata + acoes/decisoes/riscos
+5. API processa com IA → cria projeto + ata + acoes/decisoes/riscos + tarefas automaticas
 6. n8n recebe resposta → envia resumo pelo WhatsApp
 ```
 
@@ -317,7 +325,7 @@ n8n (Cron 9h):
 |--------|------|-----------|
 | Dashboard | `/` | Cards resumo, projetos em risco, tarefas do dia |
 | Projetos | `/projects` | Grid de projetos com filtro por status, criar projeto |
-| Detalhe Projeto | `/projects/:id` | Metricas, kanban de tarefas, analise de risco com IA |
+| Detalhe Projeto | `/projects/:id` | Metricas, kanban de tarefas, analise de risco com IA, excluir projeto |
 | Tarefas | `/tasks` | Kanban (A Fazer, Em Andamento, Revisao, Concluido) |
 | Atas | `/atas` | Lista de atas com contadores de acoes/decisoes/riscos |
 | Detalhe Ata | `/atas/:id` | Markdown renderizado + tabs (Acoes, Decisoes, Riscos) |
@@ -371,7 +379,7 @@ pm-ia-consultorias/
 │   └── src/
 │       ├── index.js            # Servidor Express (porta 3000)
 │       ├── routes/
-│       │   ├── projects.js     # CRUD projetos + analise de risco
+│       │   ├── projects.js     # CRUD projetos + analise de risco + delete cascata
 │       │   ├── tasks.js        # CRUD tarefas + extracao com IA
 │       │   ├── reports.js      # Geracao de relatorios com IA
 │       │   ├── transcriptions.js # Upload e processamento de transcricoes
@@ -486,7 +494,7 @@ curl https://api.seudominio.com/health
 
 ## Prompts de IA
 
-Os prompts ficam em `/prompts/` e sao carregados em tempo de execucao:
+Os prompts ficam em `api/prompts/` (copiados tambem em `/prompts/` na raiz) e sao carregados em tempo de execucao:
 
 | Arquivo | Uso | Modelo |
 |---------|-----|--------|
