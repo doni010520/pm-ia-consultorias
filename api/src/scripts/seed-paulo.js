@@ -7,7 +7,7 @@ dotenv.config();
 const NAME = 'Paulo Moshe';
 const EMAIL = 'paulo.moshe@pmia.com';
 const PASSWORD = 'pm-ia-2024';
-const ROLE = 'member';
+const ROLE = 'admin';
 const ORG_ID = process.env.DEFAULT_ORGANIZATION_ID || '00000000-0000-0000-0000-000000000001';
 
 async function seed() {
