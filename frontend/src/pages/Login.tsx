@@ -26,12 +26,12 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #0f1f33 100%)' }}>
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="PM-IA" className="h-16 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold">PM-IA</h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestao de Projetos com IA</p>
+          <img src="/logo.png" alt="PM-IA" className="h-20 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-white">PM-IA</h1>
+          <p className="text-sm text-blue-200 mt-1">Gestao de Projetos com IA</p>
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-6 shadow-sm space-y-4">
