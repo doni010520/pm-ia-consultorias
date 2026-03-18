@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PageContainer } from '@/components/layout/PageContainer'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { LoadingSpinner, ErrorState } from '@/components/shared/LoadingSpinner'
+import { TaskEditModal } from '@/components/tasks/TaskEditModal'
 import { useTasks, useUpdateTaskStatus } from '@/hooks/useTasks'
 import { useProjects } from '@/hooks/useProjects'
 import { formatDate } from '@/lib/utils'
@@ -23,6 +24,8 @@ export default function Tasks() {
   const { data: projectsData } = useProjects()
   const updateStatus = useUpdateTaskStatus()
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const tasks = data?.tasks || []
 
@@ -44,6 +47,11 @@ export default function Tasks() {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
+  }
+
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task)
+    setModalOpen(true)
   }
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
@@ -79,22 +87,36 @@ export default function Tasks() {
             </div>
             <div className="space-y-2">
               {tasksByStatus(col.id).map((task) => (
-                <TaskCard key={task.id} task={task} onDragStart={handleDragStart} />
+                <TaskCard key={task.id} task={task} onDragStart={handleDragStart} onClick={handleTaskClick} />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      <TaskEditModal
+        task={selectedTask}
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open)
+          if (!open) setSelectedTask(null)
+        }}
+      />
     </PageContainer>
   )
 }
 
-function TaskCard({ task, onDragStart }: { task: Task; onDragStart: (e: React.DragEvent, id: string) => void }) {
+function TaskCard({ task, onDragStart, onClick }: {
+  task: Task
+  onDragStart: (e: React.DragEvent, id: string) => void
+  onClick: (task: Task) => void
+}) {
   return (
     <Card
-      className="p-3 cursor-grab active:cursor-grabbing hover:shadow-sm"
+      className="p-3 cursor-grab active:cursor-grabbing hover:shadow-md hover:border-primary/30 transition-all"
       draggable
       onDragStart={(e) => onDragStart(e, task.id)}
+      onClick={() => onClick(task)}
     >
       <p className="text-sm font-medium line-clamp-2">{task.title}</p>
       {task.project_name && (
