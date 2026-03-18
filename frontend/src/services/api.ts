@@ -3,13 +3,21 @@ const ORG_ID = import.meta.env.VITE_DEFAULT_ORG_ID || ''
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_URL}${path}`
+  const token = localStorage.getItem('pm-ia-token')
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
       ...options?.headers,
     },
     ...options,
   })
+
+  if (res.status === 401) {
+    localStorage.removeItem('pm-ia-token')
+    window.location.href = '/login'
+    throw new Error('Sessão expirada')
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: { message: res.statusText } }))

@@ -5,11 +5,15 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 
 // Rotas
+import authRouter from './routes/auth.js';
 import tasksRouter from './routes/tasks.js';
 import projectsRouter from './routes/projects.js';
 import reportsRouter from './routes/reports.js';
 import transcriptionsRouter from './routes/transcriptions.js';
 import alertsRouter from './routes/alerts.js';
+
+// Middleware
+import { requireAuth } from './middleware/auth.js';
 
 // Serviços
 import { initDatabase } from './services/database.js';
@@ -35,12 +39,15 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Rotas da API
-app.use('/api/tasks', tasksRouter);
-app.use('/api/projects', projectsRouter);
-app.use('/api/reports', reportsRouter);
-app.use('/api/transcriptions', transcriptionsRouter);
-app.use('/api/alerts', alertsRouter);
+// Rotas públicas
+app.use('/api/auth', authRouter);
+
+// Rotas protegidas (JWT ou organization_id para n8n)
+app.use('/api/tasks', requireAuth, tasksRouter);
+app.use('/api/projects', requireAuth, projectsRouter);
+app.use('/api/reports', requireAuth, reportsRouter);
+app.use('/api/transcriptions', requireAuth, transcriptionsRouter);
+app.use('/api/alerts', requireAuth, alertsRouter);
 
 // Error handler global
 app.use((err, req, res, next) => {
