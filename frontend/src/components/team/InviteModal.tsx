@@ -13,6 +13,7 @@ export function InviteModal({ open, onOpenChange, onSuccess }: InviteModalProps)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('member')
+  const [whatsapp, setWhatsapp] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ invite_link: string; email_sent: boolean } | null>(null)
@@ -21,6 +22,7 @@ export function InviteModal({ open, onOpenChange, onSuccess }: InviteModalProps)
     setName('')
     setEmail('')
     setRole('member')
+    setWhatsapp('')
     setError('')
     setResult(null)
   }
@@ -31,7 +33,7 @@ export function InviteModal({ open, onOpenChange, onSuccess }: InviteModalProps)
     setLoading(true)
 
     try {
-      const data = await invitesApi.create({ name, email, role })
+      const data = await invitesApi.create({ name, email, role, whatsapp })
       setResult({ invite_link: data.invite_link, email_sent: data.email_sent })
       onSuccess()
     } catch (err) {
@@ -120,6 +122,18 @@ export function InviteModal({ open, onOpenChange, onSuccess }: InviteModalProps)
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder="email@empresa.com"
                 required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="inv-whatsapp" className="text-sm font-medium">WhatsApp</label>
+              <input
+                id="inv-whatsapp"
+                type="tel"
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="5511999999999"
               />
             </div>
 

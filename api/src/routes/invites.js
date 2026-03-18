@@ -19,7 +19,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
  */
 router.post('/', requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
-    const { name, email, role = 'member' } = req.body;
+    const { name, email, role = 'member', whatsapp } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ error: { message: 'Nome e email são obrigatórios' } });
@@ -55,10 +55,10 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res, next) => {
 
     // Inserir convite
     const result = await query(
-      `INSERT INTO invites (organization_id, email, name, role, token, invited_by_id, status, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW() + INTERVAL '7 days')
+      `INSERT INTO invites (organization_id, email, name, role, whatsapp, token, invited_by_id, status, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW() + INTERVAL '7 days')
        RETURNING *`,
-      [orgId, email.toLowerCase().trim(), name, role, token, req.user.id]
+      [orgId, email.toLowerCase().trim(), name, role, whatsapp || null, token, req.user.id]
     );
 
     const invite = result.rows[0];
@@ -264,15 +264,16 @@ router.post('/accept', async (req, res, next) => {
 
     // Criar usuário
     const userResult = await client.query(
-      `INSERT INTO users (organization_id, name, email, password_hash, role, is_active)
-       VALUES ($1, $2, $3, $4, $5, true)
+      `INSERT INTO users (organization_id, name, email, whatsapp, password_hash, role, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true)
        ON CONFLICT (organization_id, email) DO UPDATE SET
          password_hash = EXCLUDED.password_hash,
          name = EXCLUDED.name,
+         whatsapp = COALESCE(EXCLUDED.whatsapp, users.whatsapp),
          role = EXCLUDED.role,
          is_active = true
        RETURNING id, name, email, role, organization_id`,
-      [invite.organization_id, invite.name, invite.email, password_hash, invite.role]
+      [invite.organization_id, invite.name, invite.email, invite.whatsapp || null, password_hash, invite.role]
     );
 
     // Marcar convite como aceito
