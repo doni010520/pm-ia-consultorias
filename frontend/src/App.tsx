@@ -15,6 +15,7 @@ import AtaDetail from '@/pages/AtaDetail'
 import Alerts from '@/pages/Alerts'
 import Reports from '@/pages/Reports'
 import Team from '@/pages/Team'
+import Capacity from '@/pages/Capacity'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,7 @@ function ProtectedLayout() {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/team" element={<Team />} />
+          <Route path="/capacity" element={<Capacity />} />
         </Routes>
       </div>
     </div>

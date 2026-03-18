@@ -12,6 +12,7 @@ import reportsRouter from './routes/reports.js';
 import transcriptionsRouter from './routes/transcriptions.js';
 import alertsRouter from './routes/alerts.js';
 import invitesRouter from './routes/invites.js';
+import allocationsRouter from './routes/allocations.js';
 
 // Middleware
 import { requireAuth } from './middleware/auth.js';
@@ -51,6 +52,7 @@ app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/transcriptions', requireAuth, transcriptionsRouter);
 app.use('/api/alerts', requireAuth, alertsRouter);
+app.use('/api/allocations', requireAuth, allocationsRouter);
 
 // Error handler global
 app.use((err, req, res, next) => {

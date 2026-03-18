@@ -8,6 +8,7 @@ import {
   BarChart3,
   Users,
   Menu,
+  Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -22,6 +23,7 @@ const navItems = [
   { to: '/alerts', icon: Bell, label: 'Alertas' },
   { to: '/reports', icon: BarChart3, label: 'Relatorios' },
   { to: '/team', icon: Users, label: 'Equipe' },
+  { to: '/capacity', icon: Clock, label: 'Capacidade' },
 ]
 
 function NavContent() {

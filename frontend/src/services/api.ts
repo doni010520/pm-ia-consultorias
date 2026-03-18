@@ -181,6 +181,68 @@ interface User {
   created_at: string
 }
 
+// Allocations
+export const allocationsApi = {
+  dashboard: () =>
+    request<AllocationDashboard>('/api/allocations/dashboard'),
+  byProject: (projectId: string) =>
+    request<{ allocations: Allocation[]; total_hours_per_week: number }>(`/api/allocations/project/${projectId}`),
+  create: (data: { user_id: string; project_id: string; hours_per_week: number; role?: string }) =>
+    request<{ allocation: Allocation }>('/api/allocations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: (projectId: string, userId: string, data: { hours_per_week?: number; role?: string }) =>
+    request<{ allocation: Allocation }>(`/api/allocations/${projectId}/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  remove: (projectId: string, userId: string) =>
+    request<{ success: boolean }>(`/api/allocations/${projectId}/${userId}`, { method: 'DELETE' }),
+  updateCapacity: (userId: string, weekly_capacity: number) =>
+    request<{ user: { id: string; name: string; weekly_capacity: number } }>(`/api/allocations/capacity/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ weekly_capacity }),
+    }),
+}
+
+interface Allocation {
+  id: string
+  project_id: string
+  user_id: string
+  hours_per_week: number
+  role: string
+  start_date: string | null
+  end_date: string | null
+  user_name?: string
+  project_name?: string
+}
+
+interface ConsultantAllocation {
+  id: string
+  name: string
+  email: string
+  role: string
+  weekly_capacity: number
+  allocated_hours: number
+  available_hours: number
+  utilization_percent: number
+  projects: { project_id: string; project_name: string; hours_per_week: number; role: string }[]
+}
+
+interface AllocationDashboard {
+  consultants: ConsultantAllocation[]
+  summary: {
+    total_consultants: number
+    total_capacity: number
+    total_allocated: number
+    total_available: number
+    avg_utilization: number
+    overallocated_count: number
+    underutilized_count: number
+  }
+}
+
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>
