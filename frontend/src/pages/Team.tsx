@@ -8,7 +8,7 @@ import { LoadingSpinner, EmptyState, ErrorState } from '@/components/shared/Load
 import { InviteModal } from '@/components/team/InviteModal'
 import { usersApi, invitesApi } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import { UserPlus, Mail, RotateCcw, X, Copy, Clock, CheckCircle2, XCircle, Users, Send } from 'lucide-react'
+import { UserPlus, Mail, RotateCcw, X, Clock, CheckCircle2, XCircle, Users, Send } from 'lucide-react'
 
 const roleLabels: Record<string, string> = {
   admin: 'Admin',
