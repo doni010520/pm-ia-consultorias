@@ -111,25 +111,36 @@ Gere um documento profissional seguindo este template:
 
 ## Plano de Acao Prioritario
 
-| Prioridade | Acao | Dono | Prazo | Dependencia | Evidencia |
-|------------|------|------|-------|-------------|-----------|
-[linhas]
+Para cada acao, use este formato (NAO use tabelas):
+
+### [Numero]. [Descricao da acao]
+- **Prioridade:** Alta | Media | Baixa
+- **Dono:** [nome]
+- **Prazo:** [data]
+- **Dependencia:** [se houver]
+- **Evidencia:** [entregavel esperado]
 
 ---
 
 ## Decisoes Tomadas
 
-| Data | Decisao | Impacto | Responsavel |
-|------|---------|---------|-------------|
-[linhas]
+Para cada decisao, use este formato (NAO use tabelas):
+
+### [Numero]. [Descricao da decisao]
+- **Data:** [data]
+- **Impacto:** Alto | Medio | Baixo
+- **Responsavel:** [nome]
 
 ---
 
 ## Riscos e Mitigacoes
 
-| Risco | Impacto | Probabilidade | Mitigacao |
-|-------|---------|---------------|-----------|
-[linhas]
+Para cada risco, use este formato (NAO use tabelas):
+
+### [Numero]. [Descricao do risco]
+- **Impacto:** Alto | Medio | Baixo
+- **Probabilidade:** Alta | Media | Baixa
+- **Mitigacao:** [estrategia]
 
 ---
 
