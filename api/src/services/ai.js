@@ -108,7 +108,7 @@ export async function callOpenAIQuality(prompt, options = {}) {
   }
 
   const {
-    model = process.env.DEFAULT_MODEL_QUALITY || 'gpt-4.1',
+    model = process.env.DEFAULT_MODEL_QUALITY || 'gpt-4.1-mini',
     temperature = 0.3,
     maxTokens = 2000,
     jsonMode = false

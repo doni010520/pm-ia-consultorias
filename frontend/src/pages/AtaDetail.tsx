@@ -32,9 +32,9 @@ export default function AtaDetail() {
             {ata.data_reuniao ? formatDate(ata.data_reuniao) : formatDate(ata.created_at)}
             {ata.project_name && ` | ${ata.project_name}`}
           </p>
-          {ata.participantes?.length > 0 && (
+          {ata.participantes && (
             <p className="text-xs text-muted-foreground mt-1">
-              Participantes: {ata.participantes.join(', ')}
+              Participantes: {Array.isArray(ata.participantes) ? ata.participantes.join(', ') : ata.participantes}
             </p>
           )}
         </div>
