@@ -20,6 +20,8 @@ import { requireAuth } from './middleware/auth.js';
 // Serviços
 import { initDatabase } from './services/database.js';
 import { initEmail } from './services/email.js';
+import { initWhatsApp } from './services/whatsapp.js';
+import { initScheduler, runDailyAlerts } from './services/scheduler.js';
 
 // Carregar variáveis de ambiente
 dotenv.config();
@@ -54,6 +56,16 @@ app.use('/api/transcriptions', requireAuth, transcriptionsRouter);
 app.use('/api/alerts', requireAuth, alertsRouter);
 app.use('/api/allocations', requireAuth, allocationsRouter);
 
+// Endpoint para disparar alertas manualmente (admin/teste)
+app.post('/api/alerts/send-daily', requireAuth, async (req, res, next) => {
+  try {
+    const result = await runDailyAlerts();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Error handler global
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -78,6 +90,8 @@ async function start() {
     console.log('✅ Banco de dados conectado');
 
     initEmail();
+    initWhatsApp();
+    initScheduler();
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
