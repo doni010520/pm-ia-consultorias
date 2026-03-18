@@ -100,4 +100,26 @@ router.post('/register', requireAuth, requireRole('admin'), async (req, res, nex
   }
 });
 
+/**
+ * GET /api/auth/users
+ * Protected: requires JWT
+ * Returns: { users, count }
+ */
+router.get('/users', requireAuth, async (req, res, next) => {
+  try {
+    const orgId = req.organizationId;
+
+    const result = await query(
+      `SELECT id, name, email, role, whatsapp, hourly_rate, is_active, created_at
+       FROM users WHERE organization_id = $1
+       ORDER BY name ASC`,
+      [orgId]
+    );
+
+    res.json({ users: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

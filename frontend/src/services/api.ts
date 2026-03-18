@@ -129,6 +129,58 @@ export const reportsApi = {
     }),
 }
 
+// Invites
+export const invitesApi = {
+  list: (status?: string) =>
+    request<{ invites: Invite[]; count: number }>(`/api/invites${withOrg({ status })}`),
+  create: (data: { name: string; email: string; role: string }) =>
+    request<{ invite: Invite; email_sent: boolean; invite_link: string }>('/api/invites', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  resend: (id: string) =>
+    request<{ invite: Invite; email_sent: boolean; invite_link: string }>(`/api/invites/${id}/resend`, { method: 'POST' }),
+  cancel: (id: string) =>
+    request<{ success: boolean }>(`/api/invites/${id}`, { method: 'DELETE' }),
+  verify: (token: string) =>
+    request<{ valid: boolean; invite?: { name: string; email: string; role: string }; reason?: string }>(
+      `/api/invites/verify/${token}`
+    ),
+  accept: (token: string, password: string) =>
+    request<{ user: unknown }>('/api/invites/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
+}
+
+// Users
+export const usersApi = {
+  list: () =>
+    request<{ users: User[]; count: number }>(`/api/auth/users${withOrg()}`),
+}
+
+interface Invite {
+  id: string
+  email: string
+  name: string
+  role: string
+  status: 'pending' | 'accepted' | 'cancelled'
+  invited_by_name?: string
+  expires_at: string
+  created_at: string
+  accepted_at?: string
+  invite_link?: string
+}
+
+interface User {
+  id: string
+  name: string
+  email: string
+  role: string
+  is_active: boolean
+  created_at: string
+}
+
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>

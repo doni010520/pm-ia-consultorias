@@ -11,12 +11,14 @@ import projectsRouter from './routes/projects.js';
 import reportsRouter from './routes/reports.js';
 import transcriptionsRouter from './routes/transcriptions.js';
 import alertsRouter from './routes/alerts.js';
+import invitesRouter from './routes/invites.js';
 
 // Middleware
 import { requireAuth } from './middleware/auth.js';
 
 // Serviços
 import { initDatabase } from './services/database.js';
+import { initEmail } from './services/email.js';
 
 // Carregar variáveis de ambiente
 dotenv.config();
@@ -41,6 +43,7 @@ app.get('/health', (req, res) => {
 
 // Rotas públicas
 app.use('/api/auth', authRouter);
+app.use('/api/invites', invitesRouter);
 
 // Rotas protegidas (JWT ou organization_id para n8n)
 app.use('/api/tasks', requireAuth, tasksRouter);
@@ -71,6 +74,8 @@ async function start() {
     // Testar conexão com banco
     await initDatabase();
     console.log('✅ Banco de dados conectado');
+
+    initEmail();
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
