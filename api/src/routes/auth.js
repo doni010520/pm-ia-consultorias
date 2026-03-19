@@ -122,4 +122,44 @@ router.get('/users', requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * PATCH /api/auth/users/:userId — Editar membro da equipe
+ */
+router.patch('/users/:userId', async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { name, email, whatsapp, hourly_rate, role } = req.body;
+
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (name !== undefined) { fields.push(`name = $${idx++}`); values.push(name); }
+    if (email !== undefined) { fields.push(`email = $${idx++}`); values.push(email); }
+    if (whatsapp !== undefined) { fields.push(`whatsapp = $${idx++}`); values.push(whatsapp); }
+    if (hourly_rate !== undefined) { fields.push(`hourly_rate = $${idx++}`); values.push(hourly_rate); }
+    if (role !== undefined) { fields.push(`role = $${idx++}`); values.push(role); }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: { message: 'Nenhum campo para atualizar' } });
+    }
+
+    fields.push('updated_at = NOW()');
+    values.push(userId);
+
+    const result = await query(
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, name, email, role, whatsapp, hourly_rate, is_active`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Usuario nao encontrado' } });
+    }
+
+    res.json({ user: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

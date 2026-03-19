@@ -157,6 +157,11 @@ export const invitesApi = {
 export const usersApi = {
   list: () =>
     request<{ users: User[]; count: number }>(`/api/auth/users${withOrg()}`),
+  update: (userId: string, data: Record<string, unknown>) =>
+    request<{ user: User }>(`/api/auth/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 }
 
 interface Invite {
@@ -290,4 +295,24 @@ export const atasApi = {
       decisoes: import('@/types').AtaDecisao[]
       riscos: import('@/types').AtaRisco[]
     }>(`/api/transcriptions/atas/${id}`),
+  updateAta: (id: string, data: Record<string, unknown>) =>
+    request<{ ata: import('@/types').Ata }>(`/api/transcriptions/atas/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  updateAcao: (ataId: string, acaoId: string, data: Record<string, unknown>) =>
+    request<{ acao: import('@/types').AtaAcao }>(`/api/transcriptions/atas/${ataId}/acoes/${acaoId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  updateDecisao: (ataId: string, decisaoId: string, data: Record<string, unknown>) =>
+    request<{ decisao: import('@/types').AtaDecisao }>(`/api/transcriptions/atas/${ataId}/decisoes/${decisaoId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  updateRisco: (ataId: string, riscoId: string, data: Record<string, unknown>) =>
+    request<{ risco: import('@/types').AtaRisco }>(`/api/transcriptions/atas/${ataId}/riscos/${riscoId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 }

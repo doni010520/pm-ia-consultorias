@@ -8,7 +8,8 @@ import { LoadingSpinner, EmptyState, ErrorState } from '@/components/shared/Load
 import { InviteModal } from '@/components/team/InviteModal'
 import { usersApi, invitesApi } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import { UserPlus, Mail, RotateCcw, X, Clock, CheckCircle2, XCircle, Users, Send } from 'lucide-react'
+import { UserEditModal } from '@/components/team/UserEditModal'
+import { UserPlus, Mail, RotateCcw, X, Clock, CheckCircle2, XCircle, Users, Send, Pencil, Phone } from 'lucide-react'
 
 const roleLabels: Record<string, string> = {
   admin: 'Admin',
@@ -24,6 +25,8 @@ const roleBadgeVariant: Record<string, 'default' | 'secondary' | 'outline'> = {
 
 export default function Team() {
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [editUser, setEditUser] = useState<any>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [tab, setTab] = useState<'members' | 'invites'>('members')
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'admin'
@@ -121,13 +124,25 @@ export default function Team() {
           {!membersLoading && members.length > 0 && (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {members.map((m) => (
-                <Card key={m.id}>
+                <Card key={m.id} className="group">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-base">{m.name}</CardTitle>
-                      <Badge variant={roleBadgeVariant[m.role] || 'outline'}>
-                        {roleLabels[m.role] || m.role}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={roleBadgeVariant[m.role] || 'outline'}>
+                          {roleLabels[m.role] || m.role}
+                        </Badge>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => { setEditUser(m); setShowEditModal(true) }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -136,6 +151,15 @@ export default function Team() {
                         <Mail className="h-3.5 w-3.5" />
                         {m.email}
                       </div>
+                      {(m as any).whatsapp && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3.5 w-3.5" />
+                          {(m as any).whatsapp}
+                        </div>
+                      )}
+                      {(m as any).hourly_rate && (
+                        <div className="text-xs">R$ {Number((m as any).hourly_rate).toFixed(2)}/h</div>
+                      )}
                       {!m.is_active && (
                         <Badge variant="destructive" className="mt-2">Inativo</Badge>
                       )}
@@ -237,6 +261,16 @@ export default function Team() {
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['invites'] })
         }}
+      />
+
+      {/* Edit User Modal */}
+      <UserEditModal
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['users'] })
+        }}
+        user={editUser}
       />
     </PageContainer>
   )

@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle, Lightbulb, AlertTriangle } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, CheckCircle, Lightbulb, AlertTriangle, Pencil } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,17 +10,31 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { MarkdownRenderer } from '@/components/shared/MarkdownRenderer'
 import { LoadingSpinner, ErrorState, EmptyState } from '@/components/shared/LoadingSpinner'
+import { AcaoEditModal } from '@/components/atas/AcaoEditModal'
 import { useAta } from '@/hooks/useAtas'
 import { formatDate } from '@/lib/utils'
+import type { AtaAcao } from '@/types'
 
 export default function AtaDetail() {
   const { id } = useParams<{ id: string }>()
   const { data, isLoading, error } = useAta(id!)
+  const qc = useQueryClient()
+  const [editAcao, setEditAcao] = useState<AtaAcao | null>(null)
+  const [acaoModalOpen, setAcaoModalOpen] = useState(false)
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
   if (error || !data) return <PageContainer><ErrorState message="Erro ao carregar ata" /></PageContainer>
 
   const { ata, acoes, decisoes, riscos } = data
+
+  function handleEditAcao(acao: AtaAcao) {
+    setEditAcao(acao)
+    setAcaoModalOpen(true)
+  }
+
+  function handleAcaoSaved() {
+    qc.invalidateQueries({ queryKey: ['ata', id] })
+  }
 
   return (
     <PageContainer>
@@ -73,7 +89,7 @@ export default function AtaDetail() {
           ) : (
             <div className="space-y-3">
               {acoes.map((a) => (
-                <Card key={a.id}>
+                <Card key={a.id} className="group">
                   <CardContent className="pt-4">
                     <div className="flex items-start gap-3">
                       <CheckCircle className="h-4 w-4 mt-0.5 text-primary shrink-0" />
@@ -89,6 +105,14 @@ export default function AtaDetail() {
                           <p className="text-xs text-muted-foreground mt-2">Evidencia: {a.evidencia_minima}</p>
                         )}
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        onClick={() => handleEditAcao(a)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -146,6 +170,14 @@ export default function AtaDetail() {
           )}
         </TabsContent>
       </Tabs>
+
+      <AcaoEditModal
+        open={acaoModalOpen}
+        onOpenChange={setAcaoModalOpen}
+        onSuccess={handleAcaoSaved}
+        ataId={id!}
+        acao={editAcao}
+      />
     </PageContainer>
   )
 }
