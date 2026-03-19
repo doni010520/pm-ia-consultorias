@@ -217,9 +217,9 @@ function DayCell({ day }: { day: DayCapacity | null }) {
           <div
             key={`t-${i}`}
             className="text-[10px] px-1 py-0.5 rounded truncate bg-purple-100 text-purple-700"
-            title={`${t.title}: ${t.estimated_hours}h`}
+            title={`${t.title}${t.estimated_hours ? `: ${t.estimated_hours}h` : ''}`}
           >
-            {t.title} {Math.round(t.estimated_hours)}h
+            {t.title}{t.estimated_hours ? ` ${Math.round(t.estimated_hours)}h` : ''}
           </div>
         ))}
       </div>

@@ -209,17 +209,21 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
       return dateStr >= aStart && dateStr <= aEnd;
     });
 
-    const allocationEntries = activeAllocations.map((a) => ({
-      project_id: a.project_id,
-      project_name: a.project_name,
-      color: a.color || '#3b82f6',
-      daily_hours: Math.round((a.hours_per_week || 0) / 5),
-    }));
+    const allocationEntries = activeAllocations
+      .filter((a) => parseFloat(a.hours_per_week) > 0)
+      .map((a) => ({
+        project_id: a.project_id,
+        project_name: a.project_name,
+        color: a.color || '#3b82f6',
+        daily_hours: Math.round((a.hours_per_week || 0) / 5),
+      }));
 
     const totalProjectHours = allocationEntries.reduce((s, a) => s + a.daily_hours, 0);
 
-    // Tarefas do dia que NAO pertencem a projetos alocados
-    const dayTasks = (tasksByDate[dateStr] || []).filter(
+    // Todas as tarefas do dia (mostrar no calendario)
+    const allDayTasks = tasksByDate[dateStr] || [];
+    // Tarefas que consomem capacidade extra (nao pertencem a projetos alocados)
+    const dayTasks = allDayTasks.filter(
       (t) => !allocatedProjectIds.has(t.project_id)
     );
     const extraTaskHours = dayTasks.reduce((s, t) => s + (parseFloat(t.estimated_hours) || 0), 0);
@@ -234,7 +238,7 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
       block_reason: null,
       daily_capacity: dailyCapacity,
       allocations: allocationEntries,
-      tasks: dayTasks.map((t) => ({
+      tasks: allDayTasks.map((t) => ({
         task_id: t.id,
         title: t.title,
         estimated_hours: parseFloat(t.estimated_hours) || 0,
