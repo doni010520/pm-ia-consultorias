@@ -282,7 +282,7 @@ export async function getProjectMetrics(projectId) {
  * Atualiza uma tarefa
  */
 export async function updateTask(id, updates) {
-  const allowedFields = ['title', 'description', 'assignee_id', 'due_date', 'priority', 'status', 'project_id'];
+  const allowedFields = ['title', 'description', 'assignee_id', 'due_date', 'priority', 'status', 'project_id', 'estimated_hours'];
   const fields = Object.keys(updates).filter(k => allowedFields.includes(k) && updates[k] !== undefined);
 
   if (fields.length === 0) {

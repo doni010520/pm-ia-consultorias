@@ -156,9 +156,9 @@ router.post('/from-extraction', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, assignee_id, due_date, priority, project_id } = req.body;
+    const { title, description, assignee_id, due_date, priority, project_id, estimated_hours } = req.body;
 
-    const task = await updateTask(id, { title, description, assignee_id, due_date, priority, project_id });
+    const task = await updateTask(id, { title, description, assignee_id, due_date, priority, project_id, estimated_hours });
 
     if (!task) {
       return res.status(404).json({ error: { message: 'Tarefa não encontrada' } });
