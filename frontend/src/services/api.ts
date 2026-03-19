@@ -133,7 +133,7 @@ export const reportsApi = {
 export const invitesApi = {
   list: (status?: string) =>
     request<{ invites: Invite[]; count: number }>(`/api/invites${withOrg({ status })}`),
-  create: (data: { name: string; email: string; role: string }) =>
+  create: (data: { name: string; email: string; role: string; whatsapp?: string }) =>
     request<{ invite: Invite; email_sent: boolean; invite_link: string }>('/api/invites', {
       method: 'POST',
       body: JSON.stringify(data),

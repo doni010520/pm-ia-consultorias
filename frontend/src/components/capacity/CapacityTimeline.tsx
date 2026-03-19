@@ -75,27 +75,6 @@ export function CapacityTimeline() {
     return 'bg-green-500'
   }
 
-  function getBarStyle(segment: { start_date: string | null; end_date: string | null; color: string }, weeks: string[]): { left: string; width: string; color: string } | null {
-    const segStart = segment.start_date || '1900-01-01'
-    const segEnd = segment.end_date || '2100-12-31'
-
-    let startIdx = -1
-    let endIdx = -1
-
-    for (let i = 0; i < weeks.length; i++) {
-      const weekEnd = toDateStr(addWeeks(new Date(weeks[i] + 'T12:00:00'), 1))
-      if (startIdx === -1 && weekEnd > segStart) startIdx = i
-      if (weeks[i] <= segEnd) endIdx = i
-    }
-
-    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) return null
-
-    const left = `${(startIdx / weeks.length) * 100}%`
-    const width = `${((endIdx - startIdx + 1) / weeks.length) * 100}%`
-
-    return { left, width, color: segment.color }
-  }
-
   return (
     <div className="space-y-4">
       {/* Header controls */}
@@ -154,7 +133,6 @@ export function CapacityTimeline() {
                   key={consultant.id}
                   consultant={consultant}
                   weekLabels={weekLabels}
-                  getBarStyle={getBarStyle}
                   getUtilColor={getUtilColor}
                 />
               ))}
@@ -200,12 +178,10 @@ export function CapacityTimeline() {
 function ConsultantRow({
   consultant,
   weekLabels,
-  getBarStyle,
   getUtilColor,
 }: {
   consultant: TimelineConsultant
   weekLabels: string[]
-  getBarStyle: (seg: { start_date: string | null; end_date: string | null; color: string }, weeks: string[]) => { left: string; width: string; color: string } | null
   getUtilColor: (pct: number) => string
 }) {
   // Mapear semanas do consultant.weeks por week_start

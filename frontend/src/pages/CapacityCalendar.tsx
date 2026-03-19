@@ -7,10 +7,12 @@ import { Calendar, BarChart3, GanttChart } from 'lucide-react'
 
 export default function CapacityCalendar() {
   return (
-    <PageContainer
-      title="Capacidade"
-      description="Planejamento de capacidade e disponibilidade dos consultores"
-    >
+    <PageContainer>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold">Capacidade</h1>
+        <p className="text-sm text-muted-foreground">Planejamento de capacidade e disponibilidade dos consultores</p>
+      </div>
+
       <Tabs defaultValue="timeline" className="space-y-4">
         <TabsList>
           <TabsTrigger value="timeline" className="flex items-center gap-1.5">

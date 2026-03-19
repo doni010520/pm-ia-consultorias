@@ -31,19 +31,6 @@ export function CapacityCharts() {
 
   if (!data) return null
 
-  // Dados para grafico de barras — utilizacao por consultor por mes
-  const chartData = data.consultants_utilization.flatMap((c: ConsultantUtilization) =>
-    c.months.map((m) => ({
-      name: `${c.name.split(' ')[0]} ${formatMonth(m.month)}`,
-      consultant: c.name.split(' ')[0],
-      month: formatMonth(m.month),
-      utilization: m.utilization_pct,
-      allocated: m.allocated,
-      available: m.available,
-      capacity: m.capacity,
-    }))
-  )
-
   // Agrupar por mes para grafico empilhado
   const monthlyData: Record<string, Record<string, number>> = {}
   for (const c of data.consultants_utilization) {
@@ -134,7 +121,7 @@ export function CapacityCharts() {
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} domain={[0, 'auto']} />
                 <Tooltip
-                  formatter={(value: number, name: string) => [`${value}%`, name]}
+                  formatter={(value: unknown, name: unknown) => [`${value}%`, String(name)]}
                   labelFormatter={(label) => `Mes: ${label}`}
                 />
                 <Legend />
@@ -170,9 +157,9 @@ export function CapacityCharts() {
                     const d = new Date(v + 'T12:00:00')
                     return `Semana de ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
                   }}
-                  formatter={(value: number, name: string) => {
+                  formatter={(value: unknown, name: unknown) => {
                     const labels: Record<string, string> = { free: 'Livre', total_allocated: 'Alocado', total_capacity: 'Capacidade' }
-                    return [`${value.toFixed(0)}h`, labels[name] || name]
+                    return [`${Number(value).toFixed(0)}h`, labels[String(name)] || String(name)]
                   }}
                 />
                 <Legend formatter={(v) => {
