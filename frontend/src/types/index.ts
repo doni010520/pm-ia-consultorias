@@ -149,6 +149,138 @@ export interface User {
   is_active: boolean
 }
 
+// ============================================
+// Capacity Calendar Types
+// ============================================
+
+export interface ConsultantBlock {
+  id: string
+  organization_id: string
+  user_id: string
+  user_name?: string
+  start_date: string
+  end_date: string
+  reason: string | null
+  block_type: 'vacation' | 'leave' | 'holiday' | 'training' | 'other'
+  created_at: string
+}
+
+export interface DayAllocation {
+  project_id: string
+  project_name: string
+  color: string
+  daily_hours: number
+}
+
+export interface DayTask {
+  task_id: string
+  title: string
+  estimated_hours: number
+  project_id: string
+  project_name: string
+}
+
+export interface DayCapacity {
+  date: string
+  is_weekend: boolean
+  is_blocked: boolean
+  block_reason: string | null
+  block_type?: string
+  daily_capacity: number
+  allocations: DayAllocation[]
+  tasks: DayTask[]
+  total_allocated: number
+  available: number
+}
+
+export interface WeekSummary {
+  week_start: string
+  capacity: number
+  allocated: number
+  available: number
+  days: number
+}
+
+export interface AllocationSegment {
+  project_id: string
+  project_name: string
+  color: string
+  hours_per_week: number
+  start_date: string | null
+  end_date: string | null
+}
+
+export interface BlockSegment {
+  id: string
+  start_date: string
+  end_date: string
+  reason: string | null
+  block_type: string
+}
+
+export interface TimelineConsultant {
+  id: string
+  name: string
+  email: string
+  weekly_capacity: number
+  allocation_segments: AllocationSegment[]
+  block_segments: BlockSegment[]
+  weeks: WeekSummary[]
+  total_capacity: number
+  total_allocated: number
+  utilization_pct: number
+}
+
+export interface TimelineData {
+  consultants: TimelineConsultant[]
+  start_date: string
+  end_date: string
+}
+
+export interface ConsultantCalendarData {
+  consultant: { id: string; name: string; email: string; weekly_capacity: number }
+  days: DayCapacity[]
+  start_date: string
+  end_date: string
+}
+
+export interface MonthUtilization {
+  month: string
+  capacity: number
+  allocated: number
+  available: number
+  utilization_pct: number
+  blocked_days: number
+}
+
+export interface ConsultantUtilization {
+  id: string
+  name: string
+  months: MonthUtilization[]
+}
+
+export interface TeamWeekFreeHours {
+  week_start: string
+  total_capacity: number
+  total_allocated: number
+  free: number
+}
+
+export interface OverallocationAlert {
+  user_id: string
+  user_name: string
+  month: string
+  utilization_pct: number
+  allocated: number
+  capacity: number
+}
+
+export interface CapacitySummaryData {
+  consultants_utilization: ConsultantUtilization[]
+  team_free_hours_weekly: TeamWeekFreeHours[]
+  overallocation_alerts: OverallocationAlert[]
+}
+
 export interface TimeEntry {
   id: string
   task_id: string | null

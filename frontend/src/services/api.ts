@@ -243,6 +243,40 @@ interface AllocationDashboard {
   }
 }
 
+// Capacity Calendar
+export const capacityApi = {
+  timeline: (startDate: string, endDate: string) =>
+    request<import('@/types').TimelineData>(
+      `/api/capacity/timeline${withOrg({ start_date: startDate, end_date: endDate })}`
+    ),
+  consultant: (userId: string, month: string) =>
+    request<import('@/types').ConsultantCalendarData>(
+      `/api/capacity/consultant/${userId}?month=${month}`
+    ),
+  summary: (monthsAhead?: number) =>
+    request<import('@/types').CapacitySummaryData>(
+      `/api/capacity/summary${withOrg({ months_ahead: String(monthsAhead || 3) })}`
+    ),
+  blocks: {
+    list: (params?: { user_id?: string; start_date?: string; end_date?: string }) =>
+      request<{ blocks: import('@/types').ConsultantBlock[] }>(
+        `/api/capacity/blocks${withOrg(params)}`
+      ),
+    create: (data: { user_id: string; start_date: string; end_date: string; reason?: string; block_type?: string }) =>
+      request<{ block: import('@/types').ConsultantBlock }>('/api/capacity/blocks', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ block: import('@/types').ConsultantBlock }>(`/api/capacity/blocks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    remove: (id: string) =>
+      request<{ deleted: boolean }>(`/api/capacity/blocks/${id}`, { method: 'DELETE' }),
+  },
+}
+
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>

@@ -1,0 +1,220 @@
+import { useQuery } from '@tanstack/react-query'
+import { capacityApi } from '@/services/api'
+import { Card, CardContent } from '@/components/ui/card'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { AlertTriangle, Clock, Users, TrendingUp } from 'lucide-react'
+import type { ConsultantUtilization } from '@/types'
+
+const MONTH_NAMES: Record<string, string> = {
+  '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun',
+  '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez',
+}
+
+function formatMonth(m: string): string {
+  const [, mon] = m.split('-')
+  return MONTH_NAMES[mon] || mon
+}
+
+export function CapacityCharts() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['capacity-summary'],
+    queryFn: () => capacityApi.summary(4),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  // Dados para grafico de barras — utilizacao por consultor por mes
+  const chartData = data.consultants_utilization.flatMap((c: ConsultantUtilization) =>
+    c.months.map((m) => ({
+      name: `${c.name.split(' ')[0]} ${formatMonth(m.month)}`,
+      consultant: c.name.split(' ')[0],
+      month: formatMonth(m.month),
+      utilization: m.utilization_pct,
+      allocated: m.allocated,
+      available: m.available,
+      capacity: m.capacity,
+    }))
+  )
+
+  // Agrupar por mes para grafico empilhado
+  const monthlyData: Record<string, Record<string, number>> = {}
+  for (const c of data.consultants_utilization) {
+    for (const m of c.months) {
+      const key = formatMonth(m.month)
+      if (!monthlyData[key]) monthlyData[key] = { month: key as unknown as number }
+      monthlyData[key][c.name.split(' ')[0]] = m.utilization_pct
+    }
+  }
+  const barChartData = Object.values(monthlyData)
+  const consultantNames = data.consultants_utilization.map((c: ConsultantUtilization) => c.name.split(' ')[0])
+  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+
+  // Cards de resumo
+  const currentWeek = data.team_free_hours_weekly[0]
+  const nextWeek = data.team_free_hours_weekly[1]
+  const totalAlerts = data.overallocation_alerts.length
+
+  return (
+    <div className="space-y-6">
+      {/* Cards de resumo */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <Users className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Consultores</p>
+                <p className="text-xl font-bold">{data.consultants_utilization.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-100">
+                <Clock className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Horas livres esta semana</p>
+                <p className="text-xl font-bold">{currentWeek ? `${currentWeek.free.toFixed(0)}h` : '-'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-amber-100">
+                <TrendingUp className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Horas livres proxima semana</p>
+                <p className="text-xl font-bold">{nextWeek ? `${nextWeek.free.toFixed(0)}h` : '-'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${totalAlerts > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
+                <AlertTriangle className={`h-5 w-5 ${totalAlerts > 0 ? 'text-red-600' : 'text-green-600'}`} />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Superalocacoes</p>
+                <p className="text-xl font-bold">{totalAlerts}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Grafico de utilizacao por consultor */}
+      <Card>
+        <CardContent className="p-4">
+          <h3 className="text-sm font-medium mb-4">Utilizacao por Consultor (%)</h3>
+          <div style={{ height: 350 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} domain={[0, 'auto']} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [`${value}%`, name]}
+                  labelFormatter={(label) => `Mes: ${label}`}
+                />
+                <Legend />
+                {consultantNames.map((name: string, idx: number) => (
+                  <Bar key={name} dataKey={name} fill={colors[idx % colors.length]} />
+                ))}
+                {/* Linha de referencia 100% */}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Horas livres por semana da equipe */}
+      <Card>
+        <CardContent className="p-4">
+          <h3 className="text-sm font-medium mb-4">Horas Livres da Equipe por Semana</h3>
+          <div style={{ height: 250 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.team_free_hours_weekly.slice(0, 12)}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="week_start"
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(v) => {
+                    const d = new Date(v + 'T12:00:00')
+                    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+                  }}
+                />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip
+                  labelFormatter={(v) => {
+                    const d = new Date(v + 'T12:00:00')
+                    return `Semana de ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+                  }}
+                  formatter={(value: number, name: string) => {
+                    const labels: Record<string, string> = { free: 'Livre', total_allocated: 'Alocado', total_capacity: 'Capacidade' }
+                    return [`${value.toFixed(0)}h`, labels[name] || name]
+                  }}
+                />
+                <Legend formatter={(v) => {
+                  const labels: Record<string, string> = { free: 'Livre', total_allocated: 'Alocado' }
+                  return labels[v] || v
+                }} />
+                <Bar dataKey="total_allocated" fill="#3b82f6" stackId="a" />
+                <Bar dataKey="free" fill="#22c55e" stackId="a" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Alertas de superalocacao */}
+      {data.overallocation_alerts.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="text-sm font-medium mb-3 text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Alertas de Superalocacao
+            </h3>
+            <div className="space-y-2">
+              {data.overallocation_alerts.map((alert, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100">
+                  <div>
+                    <span className="font-medium text-sm">{alert.user_name}</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {formatMonth(alert.month.split('-')[1])}/{alert.month.split('-')[0]}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-red-600 font-bold text-sm">{alert.utilization_pct}%</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      ({alert.allocated.toFixed(0)}h / {alert.capacity.toFixed(0)}h)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}

@@ -16,6 +16,7 @@ import Alerts from '@/pages/Alerts'
 import Reports from '@/pages/Reports'
 import Team from '@/pages/Team'
 import Capacity from '@/pages/Capacity'
+import CapacityCalendar from '@/pages/CapacityCalendar'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,7 +61,8 @@ function ProtectedLayout() {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/team" element={<Team />} />
-          <Route path="/capacity" element={<Capacity />} />
+          <Route path="/capacity" element={<CapacityCalendar />} />
+          <Route path="/capacity/simple" element={<Capacity />} />
         </Routes>
       </div>
     </div>
