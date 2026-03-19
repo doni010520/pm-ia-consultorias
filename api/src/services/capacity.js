@@ -142,7 +142,10 @@ export function calculateDailyCapacity(user, allocations, blocks, tasks) {
  */
 export function generateDayCapacities(user, allocations, blocks, tasks, startDate, endDate) {
   const dailyCapacity = Math.round((user.weekly_capacity || 40) / 5);
-  const allocatedProjectIds = new Set(allocations.map((a) => a.project_id));
+  // Somente projetos com horas alocadas > 0 contam (para nao filtrar tarefas indevidamente)
+  const allocatedProjectIds = new Set(
+    allocations.filter((a) => parseFloat(a.hours_per_week) > 0).map((a) => a.project_id)
+  );
 
   // Indexar tarefas por data
   const tasksByDate = {};
