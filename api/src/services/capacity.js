@@ -110,7 +110,7 @@ export async function fetchAllConsultantsData(orgId, startDate, endDate) {
  * @returns {Array<DayCapacity>}
  */
 export function calculateDailyCapacity(user, allocations, blocks, tasks) {
-  const dailyCapacity = (user.weekly_capacity || 40) / 5;
+  const dailyCapacity = Math.round((user.weekly_capacity || 40) / 5);
 
   // Set de project_ids com alocacao ativa (para nao contar tarefas dobrado)
   const allocatedProjectIds = new Set(allocations.map((a) => a.project_id));
@@ -141,7 +141,7 @@ export function calculateDailyCapacity(user, allocations, blocks, tasks) {
  * Gera array de dias com capacidade calculada para um intervalo
  */
 export function generateDayCapacities(user, allocations, blocks, tasks, startDate, endDate) {
-  const dailyCapacity = (user.weekly_capacity || 40) / 5;
+  const dailyCapacity = Math.round((user.weekly_capacity || 40) / 5);
   const allocatedProjectIds = new Set(allocations.map((a) => a.project_id));
 
   // Indexar tarefas por data
@@ -210,7 +210,7 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
       project_id: a.project_id,
       project_name: a.project_name,
       color: a.color || '#3b82f6',
-      daily_hours: Math.round(((a.hours_per_week || 0) / 5) * 100) / 100,
+      daily_hours: Math.round((a.hours_per_week || 0) / 5),
     }));
 
     const totalProjectHours = allocationEntries.reduce((s, a) => s + a.daily_hours, 0);
@@ -222,7 +222,7 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
     const extraTaskHours = dayTasks.reduce((s, t) => s + (parseFloat(t.estimated_hours) || 0), 0);
 
     const totalAllocated = totalProjectHours + extraTaskHours;
-    const available = Math.max(0, Math.round((dailyCapacity - totalAllocated) * 100) / 100);
+    const available = Math.max(0, Math.round(dailyCapacity - totalAllocated));
 
     days.push({
       date: dateStr,

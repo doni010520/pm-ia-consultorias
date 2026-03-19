@@ -113,10 +113,10 @@ export function CapacityMonthView() {
         <div className="flex items-center gap-3">
           {/* Resumo do mes */}
           <div className="flex items-center gap-4 text-xs">
-            <span>Capacidade: <strong>{totalCapacity.toFixed(0)}h</strong></span>
-            <span>Alocado: <strong>{totalAllocated.toFixed(0)}h</strong></span>
+            <span>Capacidade: <strong>{Math.round(totalCapacity)}h</strong></span>
+            <span>Alocado: <strong>{Math.round(totalAllocated)}h</strong></span>
             <span className={utilPct > 100 ? 'text-red-600' : utilPct > 80 ? 'text-amber-600' : 'text-green-600'}>
-              Livre: <strong>{totalAvailable.toFixed(0)}h</strong> ({utilPct}% utilizado)
+              Livre: <strong>{Math.round(totalAvailable)}h</strong> ({utilPct}% utilizado)
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={() => setBlockModalOpen(true)}>
@@ -197,7 +197,7 @@ function DayCell({ day }: { day: DayCapacity | null }) {
         <span className={`text-[10px] font-medium ${
           utilPct > 100 ? 'text-red-600' : utilPct > 80 ? 'text-amber-600' : 'text-green-600'
         }`}>
-          {day.available.toFixed(1)}h livre
+          {Math.round(day.available)}h livre
         </span>
       </div>
 
@@ -210,7 +210,7 @@ function DayCell({ day }: { day: DayCapacity | null }) {
             style={{ backgroundColor: a.color || '#3b82f6' }}
             title={`${a.project_name}: ${a.daily_hours}h`}
           >
-            {a.project_name} {a.daily_hours}h
+            {a.project_name} {Math.round(a.daily_hours)}h
           </div>
         ))}
         {day.tasks.map((t, i) => (
@@ -219,7 +219,7 @@ function DayCell({ day }: { day: DayCapacity | null }) {
             className="text-[10px] px-1 py-0.5 rounded truncate bg-purple-100 text-purple-700"
             title={`${t.title}: ${t.estimated_hours}h`}
           >
-            {t.title} {t.estimated_hours}h
+            {t.title} {Math.round(t.estimated_hours)}h
           </div>
         ))}
       </div>
