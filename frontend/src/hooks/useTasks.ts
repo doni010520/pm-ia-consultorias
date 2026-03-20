@@ -28,6 +28,9 @@ export function useUpdateTask() {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['project-tasks'] })
       qc.invalidateQueries({ queryKey: ['alerts'] })
+      qc.invalidateQueries({ queryKey: ['capacity-timeline'] })
+      qc.invalidateQueries({ queryKey: ['capacity-consultant'] })
+      qc.invalidateQueries({ queryKey: ['capacity-summary'] })
     },
   })
 }
@@ -41,6 +44,9 @@ export function useUpdateTaskStatus() {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['project-tasks'] })
       qc.invalidateQueries({ queryKey: ['alerts'] })
+      qc.invalidateQueries({ queryKey: ['capacity-timeline'] })
+      qc.invalidateQueries({ queryKey: ['capacity-consultant'] })
+      qc.invalidateQueries({ queryKey: ['capacity-summary'] })
     },
   })
 }
