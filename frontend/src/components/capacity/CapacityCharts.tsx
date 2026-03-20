@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { capacityApi } from '@/services/api'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,6 +17,7 @@ function formatMonth(m: string): string {
 }
 
 export function CapacityCharts() {
+  const [selectedConsultant, setSelectedConsultant] = useState('all')
   const { data, isLoading } = useQuery({
     queryKey: ['capacity-summary'],
     queryFn: () => capacityApi.summary(4),
@@ -31,9 +33,18 @@ export function CapacityCharts() {
 
   if (!data) return null
 
+  // Filtrar por consultor selecionado
+  const filteredConsultants = selectedConsultant === 'all'
+    ? data.consultants_utilization
+    : data.consultants_utilization.filter((c: ConsultantUtilization) => c.id === selectedConsultant)
+
+  const filteredAlerts = selectedConsultant === 'all'
+    ? data.overallocation_alerts
+    : data.overallocation_alerts.filter((a: { user_id: string }) => a.user_id === selectedConsultant)
+
   // Agrupar por mes para grafico empilhado
   const monthlyData: Record<string, Record<string, number>> = {}
-  for (const c of data.consultants_utilization) {
+  for (const c of filteredConsultants) {
     for (const m of c.months) {
       const key = formatMonth(m.month)
       if (!monthlyData[key]) monthlyData[key] = { month: key as unknown as number }
@@ -41,16 +52,31 @@ export function CapacityCharts() {
     }
   }
   const barChartData = Object.values(monthlyData)
-  const consultantNames = data.consultants_utilization.map((c: ConsultantUtilization) => c.name.split(' ')[0])
+  const consultantNames = filteredConsultants.map((c: ConsultantUtilization) => c.name.split(' ')[0])
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
   // Cards de resumo
   const currentWeek = data.team_free_hours_weekly[0]
   const nextWeek = data.team_free_hours_weekly[1]
-  const totalAlerts = data.overallocation_alerts.length
+  const totalAlerts = filteredAlerts.length
 
   return (
     <div className="space-y-6">
+      {/* Filtro de consultor */}
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium">Consultor:</label>
+        <select
+          value={selectedConsultant}
+          onChange={(e) => setSelectedConsultant(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="all">Todos</option>
+          {data.consultants_utilization.map((c: ConsultantUtilization) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Cards de resumo */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -175,14 +201,14 @@ export function CapacityCharts() {
       </Card>
 
       {/* Alertas de superalocacao */}
-      {data.overallocation_alerts.length > 0 && (
+      {filteredAlerts.length > 0 && (
         <Card>
           <CardContent className="p-4">
             <h3 className="text-sm font-medium mb-3 text-red-600 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" /> Alertas de Superalocacao
             </h3>
             <div className="space-y-2">
-              {data.overallocation_alerts.map((alert, idx) => (
+              {filteredAlerts.map((alert, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100">
                   <div>
                     <span className="font-medium text-sm">{alert.user_name}</span>

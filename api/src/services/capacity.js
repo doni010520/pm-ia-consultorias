@@ -142,10 +142,6 @@ export function calculateDailyCapacity(user, allocations, blocks, tasks) {
  */
 export function generateDayCapacities(user, allocations, blocks, tasks, startDate, endDate) {
   const dailyCapacity = Math.round((user.weekly_capacity || 40) / 5);
-  // Somente projetos com horas alocadas > 0 contam (para nao filtrar tarefas indevidamente)
-  const allocatedProjectIds = new Set(
-    allocations.filter((a) => parseFloat(a.hours_per_week) > 0).map((a) => a.project_id)
-  );
 
   // Indexar tarefas por data
   const tasksByDate = {};
@@ -218,15 +214,34 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
         daily_hours: Math.round((a.hours_per_week || 0) / 5),
       }));
 
-    const totalProjectHours = allocationEntries.reduce((s, a) => s + a.daily_hours, 0);
-
-    // Todas as tarefas do dia (mostrar no calendario)
+    // Todas as tarefas do dia
     const allDayTasks = tasksByDate[dateStr] || [];
-    // Tarefas que consomem capacidade extra (nao pertencem a projetos alocados)
-    const dayTasks = allDayTasks.filter(
-      (t) => !allocatedProjectIds.has(t.project_id)
-    );
-    const extraTaskHours = dayTasks.reduce((s, t) => s + (parseFloat(t.estimated_hours) || 0), 0);
+
+    // Para cada projeto: usar o MAIOR entre alocacao diaria e soma de horas de tarefas do dia
+    // Isso evita dupla contagem mas garante que tarefas sempre apareçam
+    const projectTaskHours = {};
+    for (const t of allDayTasks) {
+      if (t.project_id) {
+        projectTaskHours[t.project_id] = (projectTaskHours[t.project_id] || 0) + (parseFloat(t.estimated_hours) || 0);
+      }
+    }
+
+    // Horas de projetos alocados: max(alocacao, tarefas do projeto)
+    let totalProjectHours = 0;
+    const countedProjects = new Set();
+    for (const a of allocationEntries) {
+      const projTasks = projectTaskHours[a.project_id] || 0;
+      totalProjectHours += Math.max(a.daily_hours, projTasks);
+      countedProjects.add(a.project_id);
+    }
+
+    // Tarefas de projetos sem alocacao + tarefas sem projeto
+    let extraTaskHours = 0;
+    for (const t of allDayTasks) {
+      if (!t.project_id || !countedProjects.has(t.project_id)) {
+        extraTaskHours += (parseFloat(t.estimated_hours) || 0);
+      }
+    }
 
     const totalAllocated = totalProjectHours + extraTaskHours;
     const available = Math.max(0, Math.round(dailyCapacity - totalAllocated));
