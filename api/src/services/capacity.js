@@ -206,13 +206,13 @@ export function generateDayCapacities(user, allocations, blocks, tasks, startDat
     });
 
     const allocationEntries = activeAllocations
-      .filter((a) => parseFloat(a.hours_per_week) > 0)
       .map((a) => ({
         project_id: a.project_id,
         project_name: a.project_name,
         color: a.color || '#3b82f6',
-        daily_hours: Math.round((a.hours_per_week || 0) / 5),
-      }));
+        daily_hours: Math.round((parseFloat(a.hours_per_week) || 0) / 5),
+      }))
+      .filter((a) => a.daily_hours > 0);
 
     // Todas as tarefas do dia
     const allDayTasks = tasksByDate[dateStr] || [];

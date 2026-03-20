@@ -32,15 +32,17 @@ router.get('/timeline', async (req, res, next) => {
       const days = generateDayCapacities(user, userAllocations, userBlocks, userTasks, start_date, end_date);
       const weeks = aggregateByWeek(days);
 
-      // Segmentos de alocacao para barras do Gantt
-      const allocationSegments = userAllocations.map((a) => ({
-        project_id: a.project_id,
-        project_name: a.project_name,
-        color: a.color || '#3b82f6',
-        hours_per_week: parseFloat(a.hours_per_week) || 0,
-        start_date: a.start_date ? a.start_date.toISOString?.() || a.start_date : null,
-        end_date: a.end_date ? a.end_date.toISOString?.() || a.end_date : null,
-      }));
+      // Segmentos de alocacao para barras do Gantt (filtrar 0h)
+      const allocationSegments = userAllocations
+        .filter((a) => Math.round((parseFloat(a.hours_per_week) || 0) / 5) > 0)
+        .map((a) => ({
+          project_id: a.project_id,
+          project_name: a.project_name,
+          color: a.color || '#3b82f6',
+          hours_per_week: parseFloat(a.hours_per_week) || 0,
+          start_date: a.start_date ? a.start_date.toISOString?.() || a.start_date : null,
+          end_date: a.end_date ? a.end_date.toISOString?.() || a.end_date : null,
+        }));
 
       // Segmentos de bloqueio
       const blockSegments = userBlocks.map((b) => ({
