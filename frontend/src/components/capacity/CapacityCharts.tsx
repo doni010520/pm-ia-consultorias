@@ -53,7 +53,7 @@ export function CapacityCharts() {
   }
   const barChartData = Object.values(monthlyData)
   const consultantNames = filteredConsultants.map((c: ConsultantUtilization) => c.name.split(' ')[0])
-  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+  const colors = ['#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#84cc16', '#ef4444', '#6366f1', '#14b8a6']
 
   // Cards de resumo
   const currentWeek = data.team_free_hours_weekly[0]
