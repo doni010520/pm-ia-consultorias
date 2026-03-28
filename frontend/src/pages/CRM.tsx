@@ -237,8 +237,9 @@ export default function CRM() {
               <Zap className="h-4 w-4 mr-1.5" />
               Automacoes
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setShowPipelineSettings(true)}>
-              <Settings className="h-4 w-4" />
+            <Button variant="outline" size="sm" onClick={() => setShowPipelineSettings(true)}>
+              <Settings className="h-4 w-4 mr-1.5" />
+              Etapas
             </Button>
             <Button size="sm" onClick={() => setShowNewDeal(true)}>
               <Plus className="h-4 w-4 mr-1.5" />
@@ -311,65 +312,80 @@ export default function CRM() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Buscar deal, contato, empresa..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9 h-8 text-sm bg-white"
-            />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Buscar</label>
+            <div className="relative w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Deal, contato, empresa..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9 h-8 text-sm bg-white"
+              />
+            </div>
           </div>
-          <Select value={tempFilter} onValueChange={setTempFilter}>
-            <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
-              <SelectValue placeholder="Temperatura" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="quente">Quente</SelectItem>
-              <SelectItem value="morno">Morno</SelectItem>
-              <SelectItem value="frio">Frio</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-            <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
-              <SelectValue placeholder="Responsavel" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {owners.map(o => (
-                <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={sourceFilter} onValueChange={setSourceFilter}>
-            <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
-              <SelectValue placeholder="Origem" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="whatsapp">WhatsApp</SelectItem>
-              <SelectItem value="indicacao">Indicacao</SelectItem>
-              <SelectItem value="inbound">Inbound</SelectItem>
-              <SelectItem value="outbound">Outbound</SelectItem>
-              <SelectItem value="evento">Evento</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
-              <SelectValue placeholder="Ordenar" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="recent">Mais recente</SelectItem>
-              <SelectItem value="value">Maior valor</SelectItem>
-              <SelectItem value="stage_age">Mais antigo na etapa</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Temperatura</label>
+            <Select value={tempFilter} onValueChange={setTempFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="quente">Quente</SelectItem>
+                <SelectItem value="morno">Morno</SelectItem>
+                <SelectItem value="frio">Frio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Responsavel</label>
+            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+              <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {owners.map(o => (
+                  <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Origem</label>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="indicacao">Indicacao</SelectItem>
+                <SelectItem value="inbound">Inbound</SelectItem>
+                <SelectItem value="outbound">Outbound</SelectItem>
+                <SelectItem value="evento">Evento</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Ordenar</label>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
+                <SelectValue placeholder="Mais recente" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Mais recente</SelectItem>
+                <SelectItem value="value">Maior valor</SelectItem>
+                <SelectItem value="stage_age">Mais antigo na etapa</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-sm text-slate-500">
               <X className="h-3.5 w-3.5 mr-1" />
-              Limpar filtros
+              Limpar
             </Button>
           )}
         </div>
