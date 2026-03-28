@@ -285,8 +285,28 @@ export const capacityApi = {
 // CRM
 export const crmApi = {
   // Pipeline
-  pipeline: () =>
-    request<{ stages: import('@/types').PipelineStage[] }>(`/api/crm/pipeline${withOrg()}`),
+  pipeline: Object.assign(
+    () => request<{ stages: import('@/types').PipelineStage[] }>(`/api/crm/pipeline${withOrg()}`),
+    {
+      create: (data: Record<string, unknown>) =>
+        request<{ stage: import('@/types').PipelineStage }>('/api/crm/pipeline', {
+          method: 'POST',
+          body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+        }),
+      update: (id: string, data: Record<string, unknown>) =>
+        request<{ stage: import('@/types').PipelineStage }>(`/api/crm/pipeline/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }),
+      delete: (id: string) =>
+        request<{ deleted: boolean }>(`/api/crm/pipeline/${id}`, { method: 'DELETE' }),
+      reorder: (stages: { id: string; position: number }[]) =>
+        request<{ stages: import('@/types').PipelineStage[] }>('/api/crm/pipeline/reorder', {
+          method: 'POST',
+          body: JSON.stringify({ stages, organization_id: ORG_ID }),
+        }),
+    }
+  ),
 
   // Deals
   deals: {
@@ -329,6 +349,42 @@ export const crmApi = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    contacts: {
+      list: (dealId: string) =>
+        request<{ contacts: import('@/types').DealContact[] }>(`/api/crm/deals/${dealId}/contacts`),
+      create: (dealId: string, data: Record<string, unknown>) =>
+        request<{ contact: import('@/types').DealContact }>(`/api/crm/deals/${dealId}/contacts`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      update: (dealId: string, contactId: string, data: Record<string, unknown>) =>
+        request<{ contact: import('@/types').DealContact }>(`/api/crm/deals/${dealId}/contacts/${contactId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }),
+      delete: (dealId: string, contactId: string) =>
+        request<{ deleted: boolean }>(`/api/crm/deals/${dealId}/contacts/${contactId}`, { method: 'DELETE' }),
+    },
+  },
+
+  // Automations
+  automations: {
+    list: () =>
+      request<{ automations: import('@/types').DealAutomation[] }>(`/api/crm/automations${withOrg()}`),
+    create: (data: Record<string, unknown>) =>
+      request<{ automation: import('@/types').DealAutomation }>('/api/crm/automations', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ automation: import('@/types').DealAutomation }>(`/api/crm/automations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/api/crm/automations/${id}`, { method: 'DELETE' }),
+    log: (id: string) =>
+      request<{ logs: import('@/types').DealAutomationLog[] }>(`/api/crm/automations/${id}/logs`),
   },
 
   // Stats

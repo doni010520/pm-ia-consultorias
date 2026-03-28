@@ -293,6 +293,8 @@ export interface PipelineStage {
   color: string
   is_won: boolean
   is_lost: boolean
+  max_days: number | null
+  description: string | null
 }
 
 export interface Deal {
@@ -320,6 +322,12 @@ export interface Deal {
   stage_name?: string
   stage_color?: string
   stage_position?: number
+  stage_entered_at: string | null
+  last_activity_at: string | null
+  next_follow_up: string | null
+  score: number | null
+  days_in_stage: number | null
+  is_rotting: boolean
   insights?: DealInsight[]
   recent_activities?: DealActivity[]
   created_at: string
@@ -358,6 +366,42 @@ export interface DealProduct {
   unit_price: number | null
   total: number | null
   notes: string | null
+}
+
+export interface DealContact {
+  id: string
+  deal_id: string
+  name: string
+  email: string | null
+  phone: string | null
+  role: string | null
+  is_primary: boolean
+  created_at: string
+}
+
+export interface DealAutomation {
+  id: string
+  organization_id: string
+  name: string
+  is_active: boolean
+  trigger_type: string
+  trigger_config: Record<string, unknown>
+  action_type: string
+  action_config: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface DealAutomationLog {
+  id: string
+  automation_id: string
+  deal_id: string
+  deal_title?: string
+  trigger_type: string
+  action_type: string
+  status: 'success' | 'error'
+  error_message: string | null
+  created_at: string
 }
 
 export interface CrmStats {
