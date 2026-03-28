@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { crmApi, usersApi } from '@/services/api'
+import { crmApi } from '@/services/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
   DollarSign, Users, TrendingUp, Plus, Phone, Mail, Building2,
-  Thermometer, MessageSquare, ChevronRight, X, Clock, Target,
+  MessageSquare, ChevronRight, X, Clock, Target,
   Lightbulb, AlertCircle, Calendar, User as UserIcon,
 } from 'lucide-react'
-import type { Deal, PipelineStage, DealInsight, DealActivity } from '@/types'
+import type { Deal, PipelineStage } from '@/types'
 
 const TEMPERATURE_CONFIG = {
   hot: { label: 'Quente', color: 'bg-red-100 text-red-700', icon: '🔥' },
@@ -170,7 +170,6 @@ function DealModal({
   }
 
   const { deal, insights, activities } = data
-  const temp = TEMPERATURE_CONFIG[deal.temperature] || TEMPERATURE_CONFIG.warm
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
