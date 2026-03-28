@@ -14,6 +14,7 @@ import alertsRouter from './routes/alerts.js';
 import invitesRouter from './routes/invites.js';
 import allocationsRouter from './routes/allocations.js';
 import capacityCalendarRouter from './routes/capacity-calendar.js';
+import crmRouter from './routes/crm.js';
 
 // Middleware
 import { requireAuth } from './middleware/auth.js';
@@ -57,6 +58,7 @@ app.use('/api/transcriptions', requireAuth, transcriptionsRouter);
 app.use('/api/alerts', requireAuth, alertsRouter);
 app.use('/api/allocations', requireAuth, allocationsRouter);
 app.use('/api/capacity', requireAuth, capacityCalendarRouter);
+app.use('/api/crm', requireAuth, crmRouter);
 
 // Endpoint para disparar alertas manualmente (admin/teste)
 app.post('/api/alerts/send-daily', requireAuth, async (req, res, next) => {

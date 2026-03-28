@@ -281,6 +281,106 @@ export interface CapacitySummaryData {
   overallocation_alerts: OverallocationAlert[]
 }
 
+// ============================================
+// CRM Types
+// ============================================
+
+export interface PipelineStage {
+  id: string
+  organization_id: string
+  name: string
+  position: number
+  color: string
+  is_won: boolean
+  is_lost: boolean
+}
+
+export interface Deal {
+  id: string
+  organization_id: string
+  pipeline_stage_id: string | null
+  title: string
+  contact_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  company_name: string | null
+  owner_id: string | null
+  owner_name?: string
+  value: number | null
+  probability: number
+  expected_close_date: string | null
+  won_date: string | null
+  lost_date: string | null
+  lost_reason: string | null
+  status: 'open' | 'won' | 'lost'
+  source: string | null
+  temperature: 'hot' | 'warm' | 'cold'
+  tags: string[]
+  custom_fields: Record<string, unknown>
+  stage_name?: string
+  stage_color?: string
+  stage_position?: number
+  insights?: DealInsight[]
+  recent_activities?: DealActivity[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DealInsight {
+  id: string
+  deal_id: string
+  category: string
+  content: string
+  confidence: number | null
+  source: string
+  raw_message: string | null
+  created_at: string
+}
+
+export interface DealActivity {
+  id: string
+  deal_id: string
+  user_id: string | null
+  user_name?: string
+  type: string
+  description: string | null
+  metadata: Record<string, unknown>
+  scheduled_at: string | null
+  completed_at: string | null
+  created_at: string
+}
+
+export interface DealProduct {
+  id: string
+  deal_id: string
+  description: string
+  quantity: number
+  unit_price: number | null
+  total: number | null
+  notes: string | null
+}
+
+export interface CrmStats {
+  stats: {
+    open_deals: string
+    won_deals: string
+    lost_deals: string
+    pipeline_value: string
+    won_value: string
+    won_last_30d: string
+    new_last_7d: string
+  }
+  stages_summary: Array<{
+    id: string
+    name: string
+    color: string
+    position: number
+    deal_count: string
+    total_value: string
+  }>
+  recent_activities: DealActivity[]
+}
+
 export interface TimeEntry {
   id: string
   task_id: string | null

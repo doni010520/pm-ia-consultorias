@@ -282,6 +282,60 @@ export const capacityApi = {
   },
 }
 
+// CRM
+export const crmApi = {
+  // Pipeline
+  pipeline: () =>
+    request<{ stages: import('@/types').PipelineStage[] }>(`/api/crm/pipeline${withOrg()}`),
+
+  // Deals
+  deals: {
+    list: (filters?: { status?: string; pipeline_stage_id?: string; owner_id?: string; search?: string }) =>
+      request<{ deals: import('@/types').Deal[]; count: number }>(
+        `/api/crm/deals${withOrg(filters)}`
+      ),
+    get: (id: string) =>
+      request<{ deal: import('@/types').Deal; insights: import('@/types').DealInsight[]; activities: import('@/types').DealActivity[]; products: import('@/types').DealProduct[] }>(
+        `/api/crm/deals/${id}`
+      ),
+    byPhone: (phone: string) =>
+      request<{ deal: import('@/types').Deal | null; exists: boolean }>(
+        `/api/crm/deals/by-phone/${phone}${withOrg()}`
+      ),
+    create: (data: Record<string, unknown>) =>
+      request<{ deal: import('@/types').Deal }>('/api/crm/deals', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ deal: import('@/types').Deal }>(`/api/crm/deals/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    moveStage: (id: string, pipeline_stage_id: string) =>
+      request<{ deal: import('@/types').Deal }>(`/api/crm/deals/${id}/stage`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pipeline_stage_id }),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/api/crm/deals/${id}`, { method: 'DELETE' }),
+    addInsight: (id: string, data: { category: string; content: string; source?: string }) =>
+      request<{ insight: import('@/types').DealInsight }>(`/api/crm/deals/${id}/insights`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    addActivity: (id: string, data: { type: string; description?: string }) =>
+      request<{ activity: import('@/types').DealActivity }>(`/api/crm/deals/${id}/activities`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
+
+  // Stats
+  stats: () =>
+    request<import('@/types').CrmStats>(`/api/crm/stats${withOrg()}`),
+}
+
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>
