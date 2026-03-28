@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { query } from '../services/database.js';
 import { hashPassword, comparePassword, generateToken } from '../services/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/auth.js';
+import { sendPasswordResetEmail } from '../services/email.js';
 
 const router = Router();
 
@@ -51,6 +53,103 @@ router.post('/login', async (req, res, next) => {
         organization_id: user.organization_id,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+/**
+ * POST /api/auth/forgot-password
+ * Body: { email }
+ * Envia email com link de reset
+ */
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: { message: 'Email e obrigatorio' } });
+    }
+
+    const result = await query(
+      'SELECT id, name, email FROM users WHERE email = $1 AND is_active = true',
+      [email.toLowerCase().trim()]
+    );
+
+    // Sempre retorna sucesso para nao revelar se email existe
+    if (result.rows.length === 0) {
+      return res.json({ success: true, message: 'Se o email existir, enviaremos um link de redefinicao' });
+    }
+
+    const user = result.rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+    // Salvar token no banco (invalidar tokens anteriores)
+    await query(
+      `UPDATE users SET
+        reset_token = $1,
+        reset_token_expires = $2,
+        updated_at = NOW()
+       WHERE id = $3`,
+      [token, expiresAt, user.id]
+    );
+
+    const resetLink = `${FRONTEND_URL}/reset-password/${token}`;
+    await sendPasswordResetEmail({
+      to: user.email,
+      userName: user.name,
+      resetLink,
+    });
+
+    res.json({ success: true, message: 'Se o email existir, enviaremos um link de redefinicao' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Body: { token, password }
+ * Redefine a senha usando o token
+ */
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ error: { message: 'Token e senha sao obrigatorios' } });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: { message: 'A senha deve ter pelo menos 6 caracteres' } });
+    }
+
+    const result = await query(
+      'SELECT id, name, email FROM users WHERE reset_token = $1 AND reset_token_expires > NOW() AND is_active = true',
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: { message: 'Link invalido ou expirado. Solicite um novo.' } });
+    }
+
+    const user = result.rows[0];
+    const password_hash = await hashPassword(password);
+
+    await query(
+      `UPDATE users SET
+        password_hash = $1,
+        reset_token = NULL,
+        reset_token_expires = NULL,
+        updated_at = NOW()
+       WHERE id = $2`,
+      [password_hash, user.id]
+    );
+
+    res.json({ success: true, message: 'Senha redefinida com sucesso' });
   } catch (error) {
     next(error);
   }

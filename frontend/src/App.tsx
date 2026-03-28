@@ -18,6 +18,8 @@ import Team from '@/pages/Team'
 import Capacity from '@/pages/Capacity'
 import CapacityCalendar from '@/pages/CapacityCalendar'
 import CRM from '@/pages/CRM'
+import ForgotPassword from '@/pages/ForgotPassword'
+import ResetPassword from '@/pages/ResetPassword'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +79,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/invite/:token" element={<InviteAccept />} />
           <Route path="/*" element={<ProtectedLayout />} />
         </Routes>

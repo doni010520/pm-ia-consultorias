@@ -103,3 +103,87 @@ export async function sendInviteEmail({ to, inviteeName, inviterName, role, invi
     return { success: false, reason: error.message };
   }
 }
+
+/**
+ * Envia email de reset de senha
+ */
+export async function sendPasswordResetEmail({ to, userName, resetLink }) {
+  if (!resend) {
+    console.warn('⚠️ Email não enviado (Resend não configurado). Link:', resetLink);
+    return { success: false, reason: 'Resend não configurado' };
+  }
+
+  const fromEmail = process.env.EMAIL_FROM || 'PM-IA <onboarding@resend.dev>';
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: fromEmail,
+      to: [to],
+      subject: 'Redefinir senha — PM-IA',
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1e3a5f,#0f1f33);padding:32px 40px;text-align:center;">
+              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:700;">PM-IA</h1>
+              <p style="color:#93c5fd;margin:4px 0 0;font-size:14px;">Gestao de Projetos com IA</p>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 40px;">
+              <h2 style="color:#1e3a5f;margin:0 0 16px;font-size:20px;">Ola, ${userName}!</h2>
+              <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+                Recebemos uma solicitacao para redefinir sua senha. Clique no botao abaixo para criar uma nova senha:
+              </p>
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="${resetLink}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:600;">
+                      Redefinir Senha
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#6b7280;font-size:13px;line-height:1.5;margin:24px 0 0;">
+                Este link expira em 1 hora. Se voce nao solicitou a redefinicao, ignore este email.
+              </p>
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+              <p style="color:#9ca3af;font-size:12px;margin:0;">
+                Se o botao nao funcionar, copie e cole este link no navegador:<br>
+                <a href="${resetLink}" style="color:#1e3a5f;word-break:break-all;">${resetLink}</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+      `.trim(),
+    });
+
+    if (error) {
+      console.error('❌ Erro ao enviar email de reset:', error);
+      return { success: false, reason: error.message };
+    }
+
+    console.log('✅ Email de reset enviado para:', to, 'id:', data?.id);
+    return { success: true, emailId: data?.id };
+  } catch (error) {
+    console.error('❌ Erro ao enviar email de reset:', error);
+    return { success: false, reason: error.message };
+  }
+}
