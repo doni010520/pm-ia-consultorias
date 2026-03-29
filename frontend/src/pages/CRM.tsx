@@ -1,12 +1,13 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Search, Plus, Settings, LayoutGrid, List, Phone,
+  Search, Plus, LayoutGrid, List, Phone,
   Mail, Building2, Clock, ChevronDown, ChevronRight,
-  MessageSquare, ArrowUpDown, X, GripVertical,
+  MessageSquare, ArrowUpDown, X,
   Trash2, Activity, CalendarDays, Tag,
   Zap, Globe, Users, Trophy, TrendingUp,
   FileText, Lightbulb, Send, Edit3, Check, User,
+  Filter, Pencil,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -116,8 +117,20 @@ export default function CRM() {
   // Modal state
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
   const [showNewDeal, setShowNewDeal] = useState(false)
-  const [showPipelineSettings, setShowPipelineSettings] = useState(false)
   const [showAutomations, setShowAutomations] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const filterRef = useRef<HTMLDivElement>(null)
+
+  // Close filter dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setShowFilters(false)
+      }
+    }
+    if (showFilters) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showFilters])
 
   // Kanban collapsed state for won/lost
   const [wonExpanded, setWonExpanded] = useState(false)
@@ -237,10 +250,6 @@ export default function CRM() {
               <Zap className="h-4 w-4 mr-1.5" />
               Automacoes
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowPipelineSettings(true)}>
-              <Settings className="h-4 w-4 mr-1.5" />
-              Etapas
-            </Button>
             <Button size="sm" onClick={() => setShowNewDeal(true)}>
               <Plus className="h-4 w-4 mr-1.5" />
               Novo Lead
@@ -292,103 +301,148 @@ export default function CRM() {
       {/* ============================================ */}
       {/* TOOLBAR */}
       {/* ============================================ */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="inline-flex items-center rounded-lg border bg-white p-0.5">
-            <button
-              onClick={() => setView('kanban')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${view === 'kanban' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Kanban
-            </button>
-            <button
-              onClick={() => setView('list')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${view === 'list' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              <List className="h-3.5 w-3.5" />
-              Lista
-            </button>
-          </div>
+      <div className="flex items-center gap-2">
+        <div className="inline-flex items-center rounded-lg border bg-white p-0.5">
+          <button
+            onClick={() => setView('kanban')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${view === 'kanban' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Kanban
+          </button>
+          <button
+            onClick={() => setView('list')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${view === 'list' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <List className="h-3.5 w-3.5" />
+            Lista
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Buscar</label>
-            <div className="relative w-64">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Deal, contato, empresa..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9 h-8 text-sm bg-white"
-              />
+        <div className="relative w-64">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Buscar deal, contato, empresa..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 h-8 text-sm bg-white"
+          />
+        </div>
+
+        <div className="relative" ref={filterRef}>
+          <Button
+            variant="outline" size="sm"
+            className={`h-8 ${hasFilters ? 'border-primary text-primary' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="h-3.5 w-3.5 mr-1.5" />
+            Filtros
+            {hasFilters && (
+              <span className="ml-1.5 bg-primary text-white text-[10px] rounded-full h-4 w-4 inline-flex items-center justify-center">
+                {(tempFilter !== 'all' ? 1 : 0) + (ownerFilter !== 'all' ? 1 : 0) + (sourceFilter !== 'all' ? 1 : 0)}
+              </span>
+            )}
+          </Button>
+
+          {showFilters && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg border shadow-lg p-3 w-64 space-y-3">
+              {/* Temperatura */}
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Temperatura</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ v: 'all', l: 'Todos' }, { v: 'quente', l: 'Quente' }, { v: 'morno', l: 'Morno' }, { v: 'frio', l: 'Frio' }].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setTempFilter(opt.v)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tempFilter === opt.v ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* Responsavel */}
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Responsavel</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setOwnerFilter('all')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${ownerFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    Todos
+                  </button>
+                  {owners.map(o => (
+                    <button
+                      key={o.id}
+                      onClick={() => setOwnerFilter(o.id)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${ownerFilter === o.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {o.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* Origem */}
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Origem</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ v: 'all', l: 'Todos' }, { v: 'whatsapp', l: 'WhatsApp' }, { v: 'indicacao', l: 'Indicacao' }, { v: 'inbound', l: 'Inbound' }, { v: 'outbound', l: 'Outbound' }, { v: 'evento', l: 'Evento' }].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setSourceFilter(opt.v)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${sourceFilter === opt.v ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* Ordenar */}
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Ordenar por</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ v: 'recent', l: 'Mais recente' }, { v: 'value', l: 'Maior valor' }, { v: 'stage_age', l: 'Mais antigo' }].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setSortBy(opt.v)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${sortBy === opt.v ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {hasFilters && (
+                <>
+                  <div className="border-t border-slate-100" />
+                  <button
+                    onClick={() => { clearFilters(); setShowFilters(false) }}
+                    className="text-xs text-red-500 hover:text-red-600 font-medium w-full text-center py-1"
+                  >
+                    Limpar todos os filtros
+                  </button>
+                </>
+              )}
             </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Temperatura</label>
-            <Select value={tempFilter} onValueChange={setTempFilter}>
-              <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="quente">Quente</SelectItem>
-                <SelectItem value="morno">Morno</SelectItem>
-                <SelectItem value="frio">Frio</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Responsavel</label>
-            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-              <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {owners.map(o => (
-                  <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Origem</label>
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-[130px] h-8 text-sm bg-white">
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="indicacao">Indicacao</SelectItem>
-                <SelectItem value="inbound">Inbound</SelectItem>
-                <SelectItem value="outbound">Outbound</SelectItem>
-                <SelectItem value="evento">Evento</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Ordenar</label>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[150px] h-8 text-sm bg-white">
-                <SelectValue placeholder="Mais recente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="recent">Mais recente</SelectItem>
-                <SelectItem value="value">Maior valor</SelectItem>
-                <SelectItem value="stage_age">Mais antigo na etapa</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {hasFilters && (
-            <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-sm text-slate-500">
-              <X className="h-3.5 w-3.5 mr-1" />
-              Limpar
-            </Button>
           )}
         </div>
+
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs text-slate-500">
+            <X className="h-3.5 w-3.5 mr-1" />
+            Limpar
+          </Button>
+        )}
       </div>
 
       {/* ============================================ */}
@@ -450,13 +504,6 @@ export default function CRM() {
         />
       )}
 
-      {showPipelineSettings && (
-        <PipelineSettingsModal
-          stages={stages}
-          onClose={() => setShowPipelineSettings(false)}
-        />
-      )}
-
       {showAutomations && (
         <AutomationsModal onClose={() => setShowAutomations(false)} />
       )}
@@ -486,8 +533,53 @@ function KanbanBoard({
   onDealClick: (id: string) => void
   onMoveDeal: (dealId: string, stageId: string) => void
 }) {
+  const queryClient = useQueryClient()
   const [dragDealId, setDragDealId] = useState<string | null>(null)
   const [dragOverStage, setDragOverStage] = useState<string | null>(null)
+  const [editingStageId, setEditingStageId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState('')
+  const [newStageName, setNewStageName] = useState('')
+  const [showAddStage, setShowAddStage] = useState(false)
+
+  const updateStageMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => crmApi.pipeline.update(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }),
+  })
+  const deleteStageMutation = useMutation({
+    mutationFn: (id: string) => crmApi.pipeline.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }),
+  })
+  const createStageMutation = useMutation({
+    mutationFn: (d: Record<string, unknown>) => crmApi.pipeline.create(d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }); setNewStageName(''); setShowAddStage(false) },
+  })
+
+  const startEditing = (stage: PipelineStage) => {
+    setEditingStageId(stage.id)
+    setEditName(stage.name)
+    setEditColor(stage.color)
+  }
+
+  const saveEdit = () => {
+    if (editingStageId && editName.trim()) {
+      updateStageMutation.mutate({ id: editingStageId, data: { name: editName.trim(), color: editColor } })
+    }
+    setEditingStageId(null)
+  }
+
+  const deleteStage = (id: string) => {
+    if (confirm('Excluir esta etapa? Deals nela serao perdidos.')) {
+      deleteStageMutation.mutate(id)
+      setEditingStageId(null)
+    }
+  }
+
+  const addStage = () => {
+    if (newStageName.trim()) {
+      createStageMutation.mutate({ name: newStageName.trim(), position: stages.length, color: '#6366f1' })
+    }
+  }
 
   const handleDragOver = (e: React.DragEvent, stageId: string) => {
     e.preventDefault()
@@ -511,6 +603,7 @@ function KanbanBoard({
         const stageDeals = deals.filter(d => d.pipeline_stage_id === stage.id)
         const stageValue = stageDeals.reduce((s, d) => s + (d.value ?? 0), 0)
         const isOver = dragOverStage === stage.id
+        const isEditing = editingStageId === stage.id
 
         return (
           <div
@@ -521,13 +614,53 @@ function KanbanBoard({
             onDrop={() => handleDrop(stage.id)}
           >
             <div className="px-3 py-2.5 border-b border-slate-200/60">
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: stage.color }} />
-                <span className="text-sm font-medium text-slate-700 truncate">{stage.name}</span>
-                <span className="ml-auto text-xs text-slate-400 font-medium">{stageDeals.length}</span>
-              </div>
-              {stageValue > 0 && (
-                <p className="text-xs text-slate-400 mt-0.5 pl-[18px]">{formatCurrency(stageValue)}</p>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={editColor}
+                      onChange={e => setEditColor(e.target.value)}
+                      className="h-6 w-6 rounded cursor-pointer border-0 p-0 flex-shrink-0"
+                    />
+                    <input
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingStageId(null) }}
+                      className="flex-1 text-sm font-medium bg-white border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={saveEdit} className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium">
+                      <Check className="h-3 w-3" /> Salvar
+                    </button>
+                    <button onClick={() => setEditingStageId(null)} className="text-xs text-slate-400 hover:text-slate-600 font-medium">
+                      Cancelar
+                    </button>
+                    <button onClick={() => deleteStage(stage.id)} className="ml-auto flex items-center gap-1 text-xs text-red-400 hover:text-red-600 font-medium">
+                      <Trash2 className="h-3 w-3" /> Excluir
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 group">
+                    <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: stage.color }} />
+                    <span className="text-sm font-medium text-slate-700 truncate">{stage.name}</span>
+                    <button
+                      onClick={() => startEditing(stage)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 flex-shrink-0"
+                      title="Editar etapa"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <span className="ml-auto text-xs text-slate-400 font-medium">{stageDeals.length}</span>
+                  </div>
+                  {stageValue > 0 && (
+                    <p className="text-xs text-slate-400 mt-0.5 pl-[18px]">{formatCurrency(stageValue)}</p>
+                  )}
+                </>
               )}
             </div>
             <div className="flex-1 p-2 space-y-2 min-h-[100px] overflow-y-auto max-h-[calc(100vh-380px)]">
@@ -550,6 +683,38 @@ function KanbanBoard({
           </div>
         )
       })}
+
+      {/* Add Stage Column */}
+      <div className="flex-shrink-0 w-72 flex flex-col rounded-lg bg-slate-50/50 border-2 border-dashed border-slate-200">
+        {showAddStage ? (
+          <div className="p-3 space-y-2">
+            <input
+              value={newStageName}
+              onChange={e => setNewStageName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addStage(); if (e.key === 'Escape') { setShowAddStage(false); setNewStageName('') } }}
+              placeholder="Nome da etapa..."
+              className="w-full text-sm bg-white border rounded px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button size="sm" className="h-7 text-xs" disabled={!newStageName.trim()} onClick={addStage}>
+                <Plus className="h-3 w-3 mr-1" /> Adicionar
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setShowAddStage(false); setNewStageName('') }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowAddStage(true)}
+            className="flex items-center justify-center gap-2 py-6 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Adicionar etapa
+          </button>
+        )}
+      </div>
 
       {wonStage && (
         <ClosedColumn
@@ -1340,140 +1505,6 @@ function NewDealModal({ stages, onClose }: { stages: PipelineStage[]; onClose: (
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ============================================
-// PIPELINE SETTINGS MODAL
-// ============================================
-
-function PipelineSettingsModal({ stages: initialStages, onClose }: { stages: PipelineStage[]; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const [stageList, setStageList] = useState(
-    initialStages.filter(s => !s.is_won && !s.is_lost).sort((a, b) => a.position - b.position).map(s => ({ ...s }))
-  )
-  const [newStageName, setNewStageName] = useState('')
-  const dragRef = useRef<{ dragIdx: number | null }>({ dragIdx: null })
-
-  const updateStageMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => crmApi.pipeline.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }),
-  })
-
-  const createStageMutation = useMutation({
-    mutationFn: (d: Record<string, unknown>) => crmApi.pipeline.create(d),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }); setNewStageName('') },
-  })
-
-  const deleteStageMutation = useMutation({
-    mutationFn: (id: string) => crmApi.pipeline.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }),
-  })
-
-  const reorderMutation = useMutation({
-    mutationFn: (reorderedStages: { id: string; position: number }[]) => crmApi.pipeline.reorder(reorderedStages),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['crm-pipeline'] }),
-  })
-
-  const handleSave = () => {
-    stageList.forEach(s => {
-      const orig = initialStages.find(o => o.id === s.id)
-      if (orig && (orig.name !== s.name || orig.max_days !== s.max_days || orig.color !== s.color)) {
-        updateStageMutation.mutate({ id: s.id, data: { name: s.name, max_days: s.max_days, color: s.color } })
-      }
-    })
-    reorderMutation.mutate(stageList.map((s, idx) => ({ id: s.id, position: idx })))
-    onClose()
-  }
-
-  const handleDragOverItem = (e: React.DragEvent, idx: number) => {
-    e.preventDefault()
-    const from = dragRef.current.dragIdx
-    if (from === null || from === idx) return
-    const updated = [...stageList]
-    const [moved] = updated.splice(from, 1)
-    updated.splice(idx, 0, moved)
-    setStageList(updated)
-    dragRef.current.dragIdx = idx
-  }
-
-  const updateStageField = (idx: number, field: string, value: unknown) => {
-    setStageList(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
-  }
-
-  const handleAddStage = () => {
-    if (newStageName.trim()) {
-      createStageMutation.mutate({ name: newStageName.trim(), position: stageList.length, color: '#6366f1' })
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Configurar Pipeline</DialogTitle>
-          <DialogDescription>Gerencie as etapas do pipeline de vendas</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-          {stageList.map((s, idx) => (
-            <div
-              key={s.id}
-              draggable
-              onDragStart={() => { dragRef.current.dragIdx = idx }}
-              onDragOver={(e) => handleDragOverItem(e, idx)}
-              onDragEnd={() => { dragRef.current.dragIdx = null }}
-              className="flex items-center gap-2 bg-slate-50 rounded-md p-2 group"
-            >
-              <GripVertical className="h-4 w-4 text-slate-300 cursor-grab flex-shrink-0" />
-              <input
-                type="color"
-                value={s.color}
-                onChange={e => updateStageField(idx, 'color', e.target.value)}
-                className="h-7 w-7 rounded cursor-pointer border-0 p-0 flex-shrink-0"
-              />
-              <Input value={s.name} onChange={e => updateStageField(idx, 'name', e.target.value)} className="flex-1 h-8 text-sm" />
-              <div className="flex items-center gap-1">
-                <Input
-                  type="number"
-                  value={s.max_days ?? ''}
-                  onChange={e => updateStageField(idx, 'max_days', e.target.value ? parseInt(e.target.value) : null)}
-                  placeholder="SLA"
-                  className="w-16 h-8 text-xs text-center"
-                  title="Dias maximo na etapa"
-                />
-                <span className="text-[10px] text-slate-400">dias</span>
-              </div>
-              <Button
-                variant="ghost" size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500"
-                onClick={() => { setStageList(prev => prev.filter((_, i) => i !== idx)); deleteStageMutation.mutate(s.id) }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Nova etapa..."
-            value={newStageName}
-            onChange={e => setNewStageName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAddStage() }}
-            className="flex-1 h-8 text-sm"
-          />
-          <Button variant="outline" size="sm" className="h-8" disabled={!newStageName.trim()} onClick={handleAddStage}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar
-          </Button>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={handleSave}>Salvar</Button>
-        </div>
       </DialogContent>
     </Dialog>
   )
