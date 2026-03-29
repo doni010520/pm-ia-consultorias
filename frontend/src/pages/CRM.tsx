@@ -7,8 +7,12 @@ import {
   Trash2, Activity, CalendarDays, Tag,
   Zap, Globe, Users, Trophy, TrendingUp,
   FileText, Lightbulb, Send, Edit3, Check, User,
-  Filter, Pencil,
+  Filter, Pencil, BarChart3, Target, AlertTriangle,
 } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -107,7 +111,7 @@ export default function CRM() {
   const queryClient = useQueryClient()
 
   // View and filter state
-  const [view, setView] = useState<'kanban' | 'list'>('kanban')
+  const [view, setView] = useState<'kanban' | 'list' | 'dashboard'>('kanban')
   const [search, setSearch] = useState('')
   const [tempFilter, setTempFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
@@ -317,19 +321,28 @@ export default function CRM() {
             <List className="h-3.5 w-3.5" />
             Lista
           </button>
+          <button
+            onClick={() => setView('dashboard')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${view === 'dashboard' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            Dashboard
+          </button>
         </div>
 
-        <div className="relative w-64">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <Input
-            placeholder="Buscar deal, contato, empresa..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9 h-8 text-sm bg-white"
-          />
-        </div>
+        {view !== 'dashboard' && (
+          <div className="relative w-64">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Buscar deal, contato, empresa..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 h-8 text-sm bg-white"
+            />
+          </div>
+        )}
 
-        <div className="relative" ref={filterRef}>
+        {view !== 'dashboard' && <div className="relative" ref={filterRef}>
           <Button
             variant="outline" size="sm"
             className={`h-8 ${hasFilters ? 'border-primary text-primary' : ''}`}
@@ -435,15 +448,30 @@ export default function CRM() {
               )}
             </div>
           )}
-        </div>
+        </div>}
 
-        {hasFilters && (
+        {view !== 'dashboard' && hasFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs text-slate-500">
             <X className="h-3.5 w-3.5 mr-1" />
             Limpar
           </Button>
         )}
       </div>
+
+      {/* ============================================ */}
+      {/* DASHBOARD VIEW */}
+      {/* ============================================ */}
+      {view === 'dashboard' && (
+        <DashboardView
+          stages={activeStages}
+          allDeals={allDeals}
+          openDeals={openDeals}
+          wonDeals={wonDeals}
+          lostDeals={lostDeals}
+          stats={stats}
+          onDealClick={setSelectedDealId}
+        />
+      )}
 
       {/* ============================================ */}
       {/* KANBAN VIEW */}
@@ -508,6 +536,396 @@ export default function CRM() {
         <AutomationsModal onClose={() => setShowAutomations(false)} />
       )}
     </PageContainer>
+  )
+}
+
+// ============================================
+// DASHBOARD VIEW
+// ============================================
+
+const SOURCE_COLORS: Record<string, string> = {
+  whatsapp: '#25d366', indicacao: '#8b5cf6', inbound: '#3b82f6',
+  outbound: '#f59e0b', evento: '#ec4899',
+}
+const TEMP_COLORS: Record<string, string> = { hot: '#ef4444', warm: '#f59e0b', cold: '#3b82f6' }
+
+function DashboardView({ stages, allDeals, openDeals, wonDeals, lostDeals, stats, onDealClick }: {
+  stages: PipelineStage[]
+  allDeals: Deal[]
+  openDeals: Deal[]
+  wonDeals: Deal[]
+  lostDeals: Deal[]
+  stats: CrmStats | undefined
+  onDealClick: (id: string) => void
+}) {
+  // Funnel data: deals per stage in order
+  const funnelData = useMemo(() => {
+    const sorted = [...stages].sort((a, b) => a.position - b.position)
+    const firstCount = openDeals.filter(d => d.pipeline_stage_id === sorted[0]?.id).length || 1
+    return sorted.map((s, idx) => {
+      const count = openDeals.filter(d => d.pipeline_stage_id === s.id).length
+      const value = openDeals.filter(d => d.pipeline_stage_id === s.id).reduce((sum, d) => sum + (d.value ?? 0), 0)
+      const prevCount = idx === 0 ? count : openDeals.filter(d => d.pipeline_stage_id === sorted[idx - 1].id).length
+      const conversionFromPrev = idx === 0 ? 100 : (prevCount > 0 ? Math.round((count / prevCount) * 100) : 0)
+      const conversionFromFirst = Math.round((count / firstCount) * 100)
+      return { name: s.name, color: s.color, count, value, conversionFromPrev, conversionFromFirst }
+    })
+  }, [stages, openDeals])
+
+  // Value by stage for bar chart
+  const valueByStage = useMemo(() => {
+    return stats?.stages_summary
+      ?.filter(s => {
+        const st = stages.find(st => st.id === s.id)
+        return st && !st.is_won && !st.is_lost
+      })
+      .sort((a, b) => a.position - b.position)
+      .map(s => ({
+        name: s.name,
+        value: Number(s.total_value) || 0,
+        count: Number(s.deal_count) || 0,
+        fill: s.color,
+      })) ?? []
+  }, [stats, stages])
+
+  // Deals by source
+  const bySource = useMemo(() => {
+    const map: Record<string, number> = {}
+    openDeals.forEach(d => {
+      const src = d.source || 'outros'
+      map[src] = (map[src] || 0) + 1
+    })
+    return Object.entries(map).map(([name, value]) => ({
+      name: sourceLabel(name),
+      value,
+      fill: SOURCE_COLORS[name] || '#94a3b8',
+    }))
+  }, [openDeals])
+
+  // Deals by temperature
+  const byTemp = useMemo(() => {
+    const map: Record<string, number> = { hot: 0, warm: 0, cold: 0 }
+    openDeals.forEach(d => { map[d.temperature] = (map[d.temperature] || 0) + 1 })
+    return [
+      { name: 'Quente', value: map.hot, fill: TEMP_COLORS.hot },
+      { name: 'Morno', value: map.warm, fill: TEMP_COLORS.warm },
+      { name: 'Frio', value: map.cold, fill: TEMP_COLORS.cold },
+    ].filter(d => d.value > 0)
+  }, [openDeals])
+
+  // Average days per stage
+  const avgDaysPerStage = useMemo(() => {
+    return stages.sort((a, b) => a.position - b.position).map(s => {
+      const stageDeals = openDeals.filter(d => d.pipeline_stage_id === s.id)
+      const totalDays = stageDeals.reduce((sum, d) => sum + (d.days_in_stage ?? 0), 0)
+      const avg = stageDeals.length > 0 ? Math.round(totalDays / stageDeals.length) : 0
+      return { name: s.name, dias: avg, fill: s.color, max_days: s.max_days }
+    })
+  }, [stages, openDeals])
+
+  // Top deals
+  const topDeals = useMemo(() => {
+    return [...openDeals].filter(d => d.value && d.value > 0).sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, 5)
+  }, [openDeals])
+
+  // Rotting deals
+  const rottingDeals = useMemo(() => {
+    return openDeals.filter(d => d.is_rotting).sort((a, b) => (b.days_in_stage ?? 0) - (a.days_in_stage ?? 0)).slice(0, 5)
+  }, [openDeals])
+
+  // Won this month
+  const wonThisMonth = useMemo(() => {
+    const now = new Date()
+    return wonDeals.filter(d => {
+      if (!d.won_date) return false
+      const wd = new Date(d.won_date)
+      return wd.getMonth() === now.getMonth() && wd.getFullYear() === now.getFullYear()
+    })
+  }, [wonDeals])
+
+  const totalPipeline = openDeals.reduce((s, d) => s + (d.value ?? 0), 0)
+  const wonMonthValue = wonThisMonth.reduce((s, d) => s + (d.value ?? 0), 0)
+  const totalClosed = wonDeals.length + lostDeals.length
+  const winRate = totalClosed > 0 ? Math.round((wonDeals.length / totalClosed) * 100) : 0
+  const avgDealValue = openDeals.length > 0 ? totalPipeline / openDeals.length : 0
+
+  const maxFunnelCount = Math.max(...funnelData.map(d => d.count), 1)
+
+  return (
+    <div className="space-y-6">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Card className="shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Pipeline Total</p>
+            <p className="text-xl font-semibold text-slate-900 mt-1">{formatCurrency(totalPipeline)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{openDeals.length} deals abertos</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Ganhos (mes)</p>
+            <p className="text-xl font-semibold text-emerald-600 mt-1">{formatCurrency(wonMonthValue)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{wonThisMonth.length} deals ganhos</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Taxa de Conversao</p>
+            <p className="text-xl font-semibold text-slate-900 mt-1">{winRate}%</p>
+            <p className="text-xs text-slate-400 mt-0.5">{wonDeals.length}W / {lostDeals.length}L</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Ticket Medio</p>
+            <p className="text-xl font-semibold text-slate-900 mt-1">{formatCurrency(avgDealValue)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">por deal aberto</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Em Risco</p>
+            <p className="text-xl font-semibold text-red-600 mt-1">{rottingDeals.length}</p>
+            <p className="text-xs text-slate-400 mt-0.5">deals estagnados</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Funnel + Value by Stage */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Visual Funnel */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Target className="h-4 w-4 text-slate-400" />
+              Funil de Vendas
+            </h3>
+            <div className="space-y-2">
+              {funnelData.map((stage, idx) => {
+                const widthPercent = maxFunnelCount > 0 ? Math.max((stage.count / maxFunnelCount) * 100, 12) : 12
+                return (
+                  <div key={stage.name}>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <div
+                          className="relative rounded-md py-2.5 px-3 flex items-center justify-between transition-all"
+                          style={{
+                            width: `${widthPercent}%`,
+                            backgroundColor: stage.color + '20',
+                            borderLeft: `4px solid ${stage.color}`,
+                            minWidth: '120px',
+                          }}
+                        >
+                          <span className="text-xs font-medium text-slate-700 truncate">{stage.name}</span>
+                          <span className="text-sm font-bold text-slate-900 ml-2">{stage.count}</span>
+                        </div>
+                      </div>
+                      <div className="w-20 text-right flex-shrink-0">
+                        <span className="text-xs text-slate-500">{formatCurrency(stage.value)}</span>
+                      </div>
+                    </div>
+                    {idx < funnelData.length - 1 && (
+                      <div className="flex items-center ml-6 my-0.5">
+                        <ChevronDown className="h-3 w-3 text-slate-300" />
+                        <span className="text-[10px] text-slate-400 ml-1">
+                          {funnelData[idx + 1].conversionFromPrev}% conversao
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Value by Stage Bar Chart */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-slate-400" />
+              Valor por Etapa
+            </h3>
+            {valueByStage.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={valueByStage} layout="vertical" margin={{ left: 10, right: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} fontSize={11} tick={{ fill: '#94a3b8' }} />
+                  <YAxis type="category" dataKey="name" width={90} fontSize={11} tick={{ fill: '#64748b' }} />
+                  <Tooltip
+                    formatter={(value: number) => [formatCurrency(value), 'Valor']}
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
+                    {valueByStage.map((entry, idx) => (
+                      <Cell key={idx} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[260px] text-sm text-slate-400">Sem dados</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Source + Temperature + Avg Days */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Deals by Source */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">Deals por Origem</h3>
+            {bySource.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={bySource} cx="50%" cy="50%" innerRadius={45} outerRadius={70}
+                    dataKey="value" paddingAngle={3} strokeWidth={0}
+                  >
+                    {bySource.map((entry, idx) => (
+                      <Cell key={idx} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-slate-400">Sem dados</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Deals by Temperature */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">Temperatura dos Deals</h3>
+            {byTemp.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={byTemp} cx="50%" cy="50%" innerRadius={45} outerRadius={70}
+                    dataKey="value" paddingAngle={3} strokeWidth={0}
+                  >
+                    {byTemp.map((entry, idx) => (
+                      <Cell key={idx} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-slate-400">Sem dados</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Average Days per Stage */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-slate-400" />
+              Tempo Medio por Etapa
+            </h3>
+            <div className="space-y-3">
+              {avgDaysPerStage.map(s => (
+                <div key={s.name} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600">{s.name}</span>
+                    <span className="font-medium text-slate-800">
+                      {s.dias}d
+                      {s.max_days && <span className="text-slate-400"> / {s.max_days}d</span>}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${s.max_days ? Math.min((s.dias / s.max_days) * 100, 100) : Math.min(s.dias * 5, 100)}%`,
+                        backgroundColor: s.max_days && s.dias > s.max_days ? '#ef4444' : s.fill,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Deals + Rotting Deals */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Top Deals */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-amber-500" />
+              Top Deals (por valor)
+            </h3>
+            {topDeals.length > 0 ? (
+              <div className="space-y-2">
+                {topDeals.map((deal, idx) => (
+                  <button
+                    key={deal.id}
+                    onClick={() => onDealClick(deal.id)}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors text-left"
+                  >
+                    <span className="text-sm font-bold text-slate-400 w-5 text-center">{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{deal.title}</p>
+                      <p className="text-xs text-slate-400 truncate">{deal.contact_name || deal.company_name || '-'}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-semibold text-emerald-600">{formatCurrency(deal.value)}</p>
+                      <p className="text-[10px] text-slate-400">{deal.stage_name}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 text-center py-6">Nenhum deal com valor</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Rotting Deals */}
+        <Card className="shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              Deals em Risco (estagnados)
+            </h3>
+            {rottingDeals.length > 0 ? (
+              <div className="space-y-2">
+                {rottingDeals.map(deal => (
+                  <button
+                    key={deal.id}
+                    onClick={() => onDealClick(deal.id)}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-red-50/50 transition-colors text-left border border-red-100"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{deal.title}</p>
+                      <p className="text-xs text-slate-400 truncate">{deal.stage_name || '-'}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-semibold text-red-600">{deal.days_in_stage ?? 0} dias</p>
+                      <p className="text-[10px] text-slate-400">na etapa</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-500 text-center py-6 flex items-center justify-center gap-2">
+                <Check className="h-4 w-4" /> Nenhum deal estagnado
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
 }
 
