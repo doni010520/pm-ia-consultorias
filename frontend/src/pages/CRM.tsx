@@ -129,22 +129,23 @@ export default function CRM() {
   const [showPipelineDropdown, setShowPipelineDropdown] = useState(false)
   const [showNewPipeline, setShowNewPipeline] = useState(false)
   const [newPipelineName, setNewPipelineName] = useState('')
+  const [showNewCompany, setShowNewCompany] = useState(false)
+  const [showNewContact, setShowNewContact] = useState(false)
+  const [showAddMenu, setShowAddMenu] = useState(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
   const filterRef = useRef<HTMLDivElement>(null)
   const pipelineDropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setShowFilters(false)
-      }
-      if (pipelineDropdownRef.current && !pipelineDropdownRef.current.contains(e.target as Node)) {
-        setShowPipelineDropdown(false)
-      }
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilters(false)
+      if (pipelineDropdownRef.current && !pipelineDropdownRef.current.contains(e.target as Node)) setShowPipelineDropdown(false)
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setShowAddMenu(false)
     }
-    if (showFilters || showPipelineDropdown) document.addEventListener('mousedown', handleClick)
+    if (showFilters || showPipelineDropdown || showAddMenu) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [showFilters, showPipelineDropdown])
+  }, [showFilters, showPipelineDropdown, showAddMenu])
 
   // Kanban collapsed state for won/lost
   const [wonExpanded, setWonExpanded] = useState(false)
@@ -374,10 +375,47 @@ export default function CRM() {
               <Zap className="h-4 w-4 mr-1.5" />
               Automacoes
             </Button>
-            <Button size="sm" onClick={() => setShowNewDeal(true)}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              Novo Lead
-            </Button>
+            {/* Add button with dropdown */}
+            <div className="relative" ref={addMenuRef}>
+              <div className="inline-flex rounded-md shadow-sm">
+                <Button size="sm" className="rounded-r-none" onClick={() => setShowNewDeal(true)}>
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  Novo Lead
+                </Button>
+                <Button
+                  size="sm"
+                  className="rounded-l-none border-l border-white/20 px-1.5"
+                  onClick={() => setShowAddMenu(!showAddMenu)}
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {showAddMenu && (
+                <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border shadow-lg py-1 min-w-[180px]">
+                  <button
+                    onClick={() => { setShowNewDeal(true); setShowAddMenu(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <Target className="h-3.5 w-3.5" />
+                    Novo Lead
+                  </button>
+                  <button
+                    onClick={() => { setShowNewCompany(true); setShowAddMenu(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <Building2 className="h-3.5 w-3.5" />
+                    Nova Empresa
+                  </button>
+                  <button
+                    onClick={() => { setShowNewContact(true); setShowAddMenu(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    Novo Contato
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -655,6 +693,14 @@ export default function CRM() {
 
       {showAutomations && (
         <AutomationsModal onClose={() => setShowAutomations(false)} />
+      )}
+
+      {showNewCompany && (
+        <NewCompanyModal onClose={() => setShowNewCompany(false)} />
+      )}
+
+      {showNewContact && (
+        <NewContactModal onClose={() => setShowNewContact(false)} />
       )}
     </PageContainer>
   )
@@ -2200,6 +2246,207 @@ function AutomationsModal({ onClose }: { onClose: () => void }) {
           )}
           <Button variant="outline" onClick={onClose} className="ml-auto">Fechar</Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============================================
+// NEW COMPANY MODAL
+// ============================================
+
+function NewCompanyModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState({
+    name: '', cnpj: '', segment: '', city: '', state: '',
+    phone: '', email: '', website: '', notes: '',
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (d: Record<string, unknown>) => crmApi.companies.create(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm-companies'] })
+      onClose()
+    },
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    const data: Record<string, unknown> = {}
+    Object.entries(form).forEach(([k, v]) => { if (v.trim()) data[k] = v.trim() })
+    createMutation.mutate(data)
+  }
+
+  const u = (field: string, value: string) => setForm(p => ({ ...p, [field]: value }))
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Nova Empresa</DialogTitle>
+          <DialogDescription>Cadastre uma nova empresa no CRM</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Nome da empresa *</label>
+              <Input value={form.name} onChange={e => u('name', e.target.value)} placeholder="Ex: Padaria Silva" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">CNPJ</label>
+              <Input value={form.cnpj} onChange={e => u('cnpj', e.target.value)} placeholder="00.000.000/0000-00" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Segmento</label>
+              <Input value={form.segment} onChange={e => u('segment', e.target.value)} placeholder="Ex: Alimentacao" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Cidade</label>
+              <Input value={form.city} onChange={e => u('city', e.target.value)} placeholder="Cidade" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Estado</label>
+              <Input value={form.state} onChange={e => u('state', e.target.value)} placeholder="UF" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Telefone</label>
+              <Input value={form.phone} onChange={e => u('phone', e.target.value)} placeholder="(11) 99999-9999" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Email</label>
+              <Input type="email" value={form.email} onChange={e => u('email', e.target.value)} placeholder="contato@empresa.com" className="text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Website</label>
+              <Input value={form.website} onChange={e => u('website', e.target.value)} placeholder="https://empresa.com" className="text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Observacoes</label>
+              <Textarea value={form.notes} onChange={e => u('notes', e.target.value)} placeholder="Notas internas..." className="text-sm" rows={2} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={!form.name.trim() || createMutation.isPending}>
+              {createMutation.isPending ? 'Salvando...' : 'Criar Empresa'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============================================
+// NEW CONTACT MODAL
+// ============================================
+
+function NewContactModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState({
+    name: '', email: '', phone: '', role: '', notes: '',
+  })
+  const [companySearch, setCompanySearch] = useState('')
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
+  const [selectedCompanyName, setSelectedCompanyName] = useState('')
+
+  const { data: companyResults } = useQuery({
+    queryKey: ['crm-companies-search', companySearch],
+    queryFn: () => crmApi.companies.search(companySearch),
+    enabled: companySearch.length >= 2,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (d: Record<string, unknown>) => crmApi.contacts.create(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm-contacts'] })
+      onClose()
+    },
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    const data: Record<string, unknown> = { company_id: selectedCompanyId }
+    Object.entries(form).forEach(([k, v]) => { if (v.trim()) data[k] = v.trim() })
+    createMutation.mutate(data)
+  }
+
+  const u = (field: string, value: string) => setForm(p => ({ ...p, [field]: value }))
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Novo Contato</DialogTitle>
+          <DialogDescription>Cadastre um novo contato no CRM</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Nome *</label>
+              <Input value={form.name} onChange={e => u('name', e.target.value)} placeholder="Nome completo" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Telefone</label>
+              <Input value={form.phone} onChange={e => u('phone', e.target.value)} placeholder="(11) 99999-9999" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Email</label>
+              <Input type="email" value={form.email} onChange={e => u('email', e.target.value)} placeholder="email@empresa.com" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Cargo</label>
+              <Input value={form.role} onChange={e => u('role', e.target.value)} placeholder="Ex: Gerente" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Empresa</label>
+              {selectedCompanyId ? (
+                <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-slate-50 text-sm">
+                  <Building2 className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="flex-1 truncate">{selectedCompanyName}</span>
+                  <button type="button" onClick={() => { setSelectedCompanyId(null); setSelectedCompanyName(''); setCompanySearch('') }} className="text-slate-400 hover:text-red-500">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Input
+                    value={companySearch}
+                    onChange={e => setCompanySearch(e.target.value)}
+                    placeholder="Buscar empresa..."
+                    className="text-sm"
+                  />
+                  {companyResults && companyResults.companies.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border rounded-md shadow-lg max-h-32 overflow-y-auto">
+                      {companyResults.companies.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => { setSelectedCompanyId(c.id); setSelectedCompanyName(c.name); setCompanySearch('') }}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 truncate"
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Observacoes</label>
+              <Textarea value={form.notes} onChange={e => u('notes', e.target.value)} placeholder="Notas internas..." className="text-sm" rows={2} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={!form.name.trim() || createMutation.isPending}>
+              {createMutation.isPending ? 'Salvando...' : 'Criar Contato'}
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   )
