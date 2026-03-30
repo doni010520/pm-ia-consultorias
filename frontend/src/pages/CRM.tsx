@@ -25,7 +25,7 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner, ErrorState } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 import type {
-  Deal, PipelineStage, CrmStats,
+  Deal, PipelineStage, Pipeline, CrmStats,
 } from '@/types'
 
 // ============================================
@@ -110,6 +110,9 @@ function activityIcon(type: string) {
 export default function CRM() {
   const queryClient = useQueryClient()
 
+  // Pipeline selection state
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
+
   // View and filter state
   const [view, setView] = useState<'kanban' | 'list' | 'dashboard'>('kanban')
   const [search, setSearch] = useState('')
@@ -144,24 +147,41 @@ export default function CRM() {
   const [listSort, setListSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'updated_at', dir: 'desc' })
 
   // Data fetching
+  const { data: pipelinesData, isLoading: pipelinesLoading } = useQuery({
+    queryKey: ['crm-pipelines'],
+    queryFn: () => crmApi.pipelines.list(),
+  })
+  const pipelines = pipelinesData?.pipelines ?? []
+
+  // Auto-select first pipeline if none selected
+  useEffect(() => {
+    if (pipelines.length > 0 && !selectedPipelineId) {
+      setSelectedPipelineId(pipelines[0].id)
+    }
+  }, [pipelines, selectedPipelineId])
+
   const { data: pipelineData, isLoading: pipelineLoading } = useQuery({
-    queryKey: ['crm-pipeline'],
-    queryFn: () => crmApi.pipeline(),
+    queryKey: ['crm-pipeline', selectedPipelineId],
+    queryFn: () => crmApi.pipeline(selectedPipelineId || undefined),
+    enabled: !!selectedPipelineId,
   })
 
   const { data: dealsData, isLoading: dealsLoading } = useQuery({
-    queryKey: ['crm-deals'],
-    queryFn: () => crmApi.deals.list(),
+    queryKey: ['crm-deals', selectedPipelineId],
+    queryFn: () => crmApi.deals.list(selectedPipelineId ? { pipeline_id: selectedPipelineId } : {}),
+    enabled: !!selectedPipelineId,
   })
 
   const { data: statsData } = useQuery({
-    queryKey: ['crm-stats'],
-    queryFn: () => crmApi.stats(),
+    queryKey: ['crm-stats', selectedPipelineId],
+    queryFn: () => crmApi.stats(selectedPipelineId || undefined),
+    enabled: !!selectedPipelineId,
   })
 
   const stages = pipelineData?.stages ?? []
   const allDeals = dealsData?.deals ?? []
   const stats = statsData as CrmStats | undefined
+  const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId)
 
   // Unique owners from deals
   const owners = useMemo(() => {
@@ -217,13 +237,14 @@ export default function CRM() {
     mutationFn: ({ dealId, stageId }: { dealId: string; stageId: string }) =>
       crmApi.deals.moveStage(dealId, stageId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crm-deals'] })
-      queryClient.invalidateQueries({ queryKey: ['crm-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['crm-deals', selectedPipelineId] })
+      queryClient.invalidateQueries({ queryKey: ['crm-stats', selectedPipelineId] })
+      queryClient.invalidateQueries({ queryKey: ['crm-pipelines'] })
     },
   })
 
-  if (pipelineLoading || dealsLoading) return <PageContainer><LoadingSpinner /></PageContainer>
-  if (!pipelineData) return <PageContainer><ErrorState message="Erro ao carregar pipeline" /></PageContainer>
+  if (pipelinesLoading || pipelineLoading || dealsLoading) return <PageContainer><LoadingSpinner /></PageContainer>
+  if (!pipelinesData) return <PageContainer><ErrorState message="Erro ao carregar pipelines" /></PageContainer>
 
   const activeStages = stages.filter(s => !s.is_won && !s.is_lost).sort((a, b) => a.position - b.position)
   const wonStage = stages.find(s => s.is_won)
@@ -247,7 +268,7 @@ export default function CRM() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">CRM</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Pipeline de vendas</p>
+            <p className="text-sm text-slate-500 mt-0.5">{selectedPipeline?.name || 'Pipeline de vendas'}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowAutomations(true)}>
@@ -260,6 +281,32 @@ export default function CRM() {
             </Button>
           </div>
         </div>
+
+        {/* Pipeline Tabs */}
+        {pipelines.length > 1 && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+            {pipelines.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPipelineId(p.id)}
+                className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  selectedPipelineId === p.id
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {p.name}
+                {p.open_deals && parseInt(p.open_deals) > 0 && (
+                  <span className={`text-[10px] rounded-full h-4 min-w-[16px] px-1 inline-flex items-center justify-center ${
+                    selectedPipelineId === p.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-500'
+                  }`}>
+                    {p.open_deals}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Stats Bar */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -490,6 +537,7 @@ export default function CRM() {
           onToggleLost={() => setLostExpanded(!lostExpanded)}
           onDealClick={setSelectedDealId}
           onMoveDeal={(dealId, stageId) => moveDealMutation.mutate({ dealId, stageId })}
+          pipelineId={selectedPipelineId}
         />
       )}
 
@@ -528,6 +576,7 @@ export default function CRM() {
       {showNewDeal && (
         <NewDealModal
           stages={activeStages}
+          pipelineId={selectedPipelineId}
           onClose={() => setShowNewDeal(false)}
         />
       )}
@@ -936,7 +985,7 @@ function DashboardView({ stages, allDeals, openDeals, wonDeals, lostDeals, stats
 function KanbanBoard({
   stages, wonStage, lostStage, deals, wonDeals, lostDeals,
   wonExpanded, lostExpanded, onToggleWon, onToggleLost,
-  onDealClick, onMoveDeal,
+  onDealClick, onMoveDeal, pipelineId,
 }: {
   stages: PipelineStage[]
   wonStage: PipelineStage | undefined
@@ -950,6 +999,7 @@ function KanbanBoard({
   onToggleLost: () => void
   onDealClick: (id: string) => void
   onMoveDeal: (dealId: string, stageId: string) => void
+  pipelineId: string | null
 }) {
   const queryClient = useQueryClient()
   const [dragDealId, setDragDealId] = useState<string | null>(null)
@@ -995,7 +1045,7 @@ function KanbanBoard({
 
   const addStage = () => {
     if (newStageName.trim()) {
-      createStageMutation.mutate({ name: newStageName.trim(), position: stages.length, color: '#6366f1' })
+      createStageMutation.mutate({ name: newStageName.trim(), position: stages.length, color: '#6366f1', pipeline_id: pipelineId })
     }
   }
 
@@ -1810,7 +1860,7 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
 // NEW DEAL MODAL
 // ============================================
 
-function NewDealModal({ stages, onClose }: { stages: PipelineStage[]; onClose: () => void }) {
+function NewDealModal({ stages, pipelineId, onClose }: { stages: PipelineStage[]; pipelineId: string | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [form, setForm] = useState({
     title: '', contact_name: '', contact_phone: '', contact_email: '',
@@ -1823,6 +1873,7 @@ function NewDealModal({ stages, onClose }: { stages: PipelineStage[]; onClose: (
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm-deals'] })
       queryClient.invalidateQueries({ queryKey: ['crm-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['crm-pipelines'] })
       onClose()
     },
   })
@@ -1840,6 +1891,7 @@ function NewDealModal({ stages, onClose }: { stages: PipelineStage[]; onClose: (
       source: form.source,
       temperature: form.temperature,
       pipeline_stage_id: form.pipeline_stage_id,
+      pipeline_id: pipelineId,
     })
   }
 

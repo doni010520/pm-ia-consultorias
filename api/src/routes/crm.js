@@ -135,17 +135,105 @@ async function executeAutomations(dealId, triggerType, triggerData, orgId) {
 }
 
 // ============================================
-// PIPELINE STAGES
+// PIPELINES (multi-funnel)
 // ============================================
 
-// List stages ordered by position
-router.get('/pipeline', async (req, res, next) => {
+// List pipelines for org
+router.get('/pipelines', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const result = await query(
-      'SELECT * FROM pipeline_stages WHERE organization_id = $1 ORDER BY position',
+      `SELECT p.*,
+              (SELECT COUNT(*) FROM deals d WHERE d.pipeline_id = p.id AND d.status = 'open') as open_deals,
+              (SELECT COALESCE(SUM(d.value), 0) FROM deals d WHERE d.pipeline_id = p.id AND d.status = 'open') as pipeline_value
+       FROM pipelines p
+       WHERE p.organization_id = $1 AND p.is_active = true
+       ORDER BY p.position`,
       [orgId]
     );
+    res.json({ pipelines: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Create pipeline
+router.post('/pipelines', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { name, description, position } = req.body;
+    if (!name) return res.status(400).json({ error: { message: 'name e obrigatorio' } });
+
+    const result = await query(
+      `INSERT INTO pipelines (organization_id, name, description, position)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [orgId, name, description || null, position || 0]
+    );
+    res.status(201).json({ pipeline: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update pipeline
+router.patch('/pipelines/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const fields = []; const values = []; let idx = 1;
+    for (const key of ['name', 'description', 'position', 'is_active']) {
+      if (req.body[key] !== undefined) { fields.push(`${key} = $${idx++}`); values.push(req.body[key]); }
+    }
+    if (fields.length === 0) return res.status(400).json({ error: { message: 'Nenhum campo para atualizar' } });
+    fields.push('updated_at = NOW()');
+    values.push(id); values.push(orgId);
+    const result = await query(
+      `UPDATE pipelines SET ${fields.join(', ')} WHERE id = $${idx++} AND organization_id = $${idx} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Pipeline nao encontrado' } });
+    res.json({ pipeline: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete pipeline (only if no deals)
+router.delete('/pipelines/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const check = await query('SELECT COUNT(*) as count FROM deals WHERE pipeline_id = $1', [id]);
+    if (parseInt(check.rows[0].count) > 0) {
+      return res.status(400).json({ error: { message: 'Pipeline possui deals. Mova os deals antes de excluir.' } });
+    }
+    const result = await query('DELETE FROM pipelines WHERE id = $1 AND organization_id = $2 RETURNING id', [id, orgId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Pipeline nao encontrado' } });
+    // Also delete orphaned stages
+    await query('DELETE FROM pipeline_stages WHERE pipeline_id = $1', [id]);
+    res.json({ deleted: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// PIPELINE STAGES
+// ============================================
+
+// List stages ordered by position (filter by pipeline_id)
+router.get('/pipeline', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { pipeline_id } = req.query;
+    let sql = 'SELECT * FROM pipeline_stages WHERE organization_id = $1';
+    const params = [orgId];
+    if (pipeline_id) {
+      sql += ' AND pipeline_id = $2';
+      params.push(pipeline_id);
+    }
+    sql += ' ORDER BY position';
+    const result = await query(sql, params);
     res.json({ stages: result.rows });
   } catch (error) {
     next(error);
@@ -156,17 +244,17 @@ router.get('/pipeline', async (req, res, next) => {
 router.post('/pipeline', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
-    const { name, color, position, max_days, description } = req.body;
+    const { name, color, position, max_days, description, pipeline_id } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: { message: 'name e obrigatorio' } });
     }
 
     const result = await query(
-      `INSERT INTO pipeline_stages (organization_id, name, color, position, max_days, description)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO pipeline_stages (organization_id, pipeline_id, name, color, position, max_days, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [orgId, name, color || '#6B7280', position || 0, max_days || null, description || null]
+      [orgId, pipeline_id || null, name, color || '#6B7280', position || 0, max_days || null, description || null]
     );
 
     res.status(201).json({ stage: result.rows[0] });
@@ -212,7 +300,7 @@ router.patch('/pipeline/:id', async (req, res, next) => {
     const values = [];
     let idx = 1;
 
-    const allowed = ['name', 'color', 'position', 'max_days', 'description', 'is_won', 'is_lost'];
+    const allowed = ['name', 'color', 'position', 'max_days', 'description', 'is_won', 'is_lost', 'pipeline_id'];
 
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
@@ -278,6 +366,255 @@ router.delete('/pipeline/:id', async (req, res, next) => {
 });
 
 // ============================================
+// COMPANIES
+// ============================================
+
+// List companies
+router.get('/companies', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { search, segment, limit: lim } = req.query;
+    let sql = `
+      SELECT c.*,
+             (SELECT COUNT(*) FROM contacts ct WHERE ct.company_id = c.id) as contacts_count,
+             (SELECT COUNT(*) FROM deals d WHERE d.company_id = c.id) as deals_count,
+             (SELECT COALESCE(SUM(d.value), 0) FROM deals d WHERE d.company_id = c.id AND d.status = 'open') as pipeline_value
+      FROM companies c WHERE c.organization_id = $1`;
+    const params = [orgId];
+    let idx = 2;
+    if (search) {
+      sql += ` AND (c.name ILIKE $${idx} OR c.cnpj ILIKE $${idx} OR c.email ILIKE $${idx})`;
+      params.push(`%${search}%`); idx++;
+    }
+    if (segment) { sql += ` AND c.segment = $${idx++}`; params.push(segment); }
+    sql += ' ORDER BY c.name';
+    if (lim) { sql += ` LIMIT $${idx++}`; params.push(parseInt(lim)); }
+    const result = await query(sql, params);
+    res.json({ companies: result.rows, count: result.rows.length });
+  } catch (error) { next(error); }
+});
+
+// Search companies (autocomplete)
+router.get('/companies/search', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json({ companies: [] });
+    const result = await query(
+      `SELECT id, name, cnpj, segment, city, state FROM companies
+       WHERE organization_id = $1 AND name ILIKE $2 ORDER BY name LIMIT 10`,
+      [orgId, `%${q}%`]
+    );
+    res.json({ companies: result.rows });
+  } catch (error) { next(error); }
+});
+
+// Get company detail
+router.get('/companies/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [companyResult, contactsResult, dealsResult] = await Promise.all([
+      query('SELECT * FROM companies WHERE id = $1', [id]),
+      query('SELECT * FROM contacts WHERE company_id = $1 ORDER BY name', [id]),
+      query(
+        `SELECT d.*, ps.name as stage_name, ps.color as stage_color
+         FROM deals d LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+         WHERE d.company_id = $1 ORDER BY d.updated_at DESC`,
+        [id]
+      ),
+    ]);
+    if (companyResult.rows.length === 0) return res.status(404).json({ error: { message: 'Empresa nao encontrada' } });
+    res.json({ company: companyResult.rows[0], contacts: contactsResult.rows, deals: dealsResult.rows });
+  } catch (error) { next(error); }
+});
+
+// Create company
+router.post('/companies', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { name, cnpj, segment, city, state, phone, email, website, notes } = req.body;
+    if (!name) return res.status(400).json({ error: { message: 'name e obrigatorio' } });
+    const result = await query(
+      `INSERT INTO companies (organization_id, name, cnpj, segment, city, state, phone, email, website, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [orgId, name, cnpj || null, segment || null, city || null, state || null, phone || null, email || null, website || null, notes || null]
+    );
+    res.status(201).json({ company: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// Update company
+router.patch('/companies/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const fields = []; const values = []; let idx = 1;
+    for (const key of ['name', 'cnpj', 'segment', 'city', 'state', 'phone', 'email', 'website', 'notes']) {
+      if (req.body[key] !== undefined) { fields.push(`${key} = $${idx++}`); values.push(req.body[key]); }
+    }
+    if (fields.length === 0) return res.status(400).json({ error: { message: 'Nenhum campo para atualizar' } });
+    fields.push('updated_at = NOW()');
+    values.push(id); values.push(orgId);
+    const result = await query(
+      `UPDATE companies SET ${fields.join(', ')} WHERE id = $${idx++} AND organization_id = $${idx} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Empresa nao encontrada' } });
+    res.json({ company: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// Delete company
+router.delete('/companies/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const result = await query('DELETE FROM companies WHERE id = $1 AND organization_id = $2 RETURNING id', [id, orgId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Empresa nao encontrada' } });
+    res.json({ deleted: true });
+  } catch (error) { next(error); }
+});
+
+// ============================================
+// CONTACTS (standalone)
+// ============================================
+
+// List contacts
+router.get('/contacts', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { search, company_id, limit: lim } = req.query;
+    let sql = `
+      SELECT ct.*, c.name as company_name,
+             (SELECT COUNT(*) FROM deals d WHERE d.contact_id = ct.id) as deals_count
+      FROM contacts ct
+      LEFT JOIN companies c ON c.id = ct.company_id
+      WHERE ct.organization_id = $1`;
+    const params = [orgId];
+    let idx = 2;
+    if (search) {
+      sql += ` AND (ct.name ILIKE $${idx} OR ct.phone ILIKE $${idx} OR ct.email ILIKE $${idx})`;
+      params.push(`%${search}%`); idx++;
+    }
+    if (company_id) { sql += ` AND ct.company_id = $${idx++}`; params.push(company_id); }
+    sql += ' ORDER BY ct.name';
+    if (lim) { sql += ` LIMIT $${idx++}`; params.push(parseInt(lim)); }
+    const result = await query(sql, params);
+    res.json({ contacts: result.rows, count: result.rows.length });
+  } catch (error) { next(error); }
+});
+
+// Search contacts (autocomplete)
+router.get('/contacts/search', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json({ contacts: [] });
+    const result = await query(
+      `SELECT ct.id, ct.name, ct.phone, ct.email, ct.company_id, c.name as company_name
+       FROM contacts ct LEFT JOIN companies c ON c.id = ct.company_id
+       WHERE ct.organization_id = $1 AND (ct.name ILIKE $2 OR ct.phone ILIKE $2)
+       ORDER BY ct.name LIMIT 10`,
+      [orgId, `%${q}%`]
+    );
+    res.json({ contacts: result.rows });
+  } catch (error) { next(error); }
+});
+
+// Find contact by phone (for N8N)
+router.get('/contacts/by-phone/:phone', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { phone } = req.params;
+    const result = await query(
+      `SELECT ct.*, c.name as company_name
+       FROM contacts ct LEFT JOIN companies c ON c.id = ct.company_id
+       WHERE ct.organization_id = $1 AND ct.phone = $2 LIMIT 1`,
+      [orgId, phone]
+    );
+    if (result.rows.length === 0) return res.json({ contact: null, exists: false });
+    // Also fetch deals for this contact
+    const dealsResult = await query(
+      `SELECT d.*, ps.name as stage_name FROM deals d
+       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+       WHERE d.contact_id = $1 ORDER BY d.updated_at DESC`,
+      [result.rows[0].id]
+    );
+    res.json({ contact: { ...result.rows[0], deals: dealsResult.rows }, exists: true });
+  } catch (error) { next(error); }
+});
+
+// Get contact detail
+router.get('/contacts/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [contactResult, dealsResult] = await Promise.all([
+      query(
+        `SELECT ct.*, c.name as company_name FROM contacts ct
+         LEFT JOIN companies c ON c.id = ct.company_id WHERE ct.id = $1`,
+        [id]
+      ),
+      query(
+        `SELECT d.*, ps.name as stage_name, ps.color as stage_color, p.name as pipeline_name
+         FROM deals d LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+         LEFT JOIN pipelines p ON p.id = d.pipeline_id
+         WHERE d.contact_id = $1 ORDER BY d.updated_at DESC`,
+        [id]
+      ),
+    ]);
+    if (contactResult.rows.length === 0) return res.status(404).json({ error: { message: 'Contato nao encontrado' } });
+    res.json({ contact: contactResult.rows[0], deals: dealsResult.rows });
+  } catch (error) { next(error); }
+});
+
+// Create contact
+router.post('/contacts', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { name, email, phone, role, notes, company_id } = req.body;
+    if (!name) return res.status(400).json({ error: { message: 'name e obrigatorio' } });
+    const result = await query(
+      `INSERT INTO contacts (organization_id, company_id, name, email, phone, role, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [orgId, company_id || null, name, email || null, phone || null, role || null, notes || null]
+    );
+    res.status(201).json({ contact: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// Update contact
+router.patch('/contacts/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const fields = []; const values = []; let idx = 1;
+    for (const key of ['name', 'email', 'phone', 'role', 'notes', 'company_id']) {
+      if (req.body[key] !== undefined) { fields.push(`${key} = $${idx++}`); values.push(req.body[key]); }
+    }
+    if (fields.length === 0) return res.status(400).json({ error: { message: 'Nenhum campo para atualizar' } });
+    fields.push('updated_at = NOW()');
+    values.push(id); values.push(orgId);
+    const result = await query(
+      `UPDATE contacts SET ${fields.join(', ')} WHERE id = $${idx++} AND organization_id = $${idx} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Contato nao encontrado' } });
+    res.json({ contact: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// Delete contact
+router.delete('/contacts/:id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const result = await query('DELETE FROM contacts WHERE id = $1 AND organization_id = $2 RETURNING id', [id, orgId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: { message: 'Contato nao encontrado' } });
+    res.json({ deleted: true });
+  } catch (error) { next(error); }
+});
+
+// ============================================
 // DEALS
 // ============================================
 
@@ -286,7 +623,7 @@ router.get('/deals', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const {
-      status, pipeline_stage_id, owner_id, phone, search,
+      status, pipeline_stage_id, pipeline_id, owner_id, phone, search,
       temperature, source, sort_by, sort_dir,
       min_value, max_value,
     } = req.query;
@@ -296,15 +633,25 @@ router.get('/deals', async (req, res, next) => {
              ps.name as stage_name, ps.color as stage_color, ps.position as stage_position,
              ps.max_days as stage_max_days,
              u.name as owner_name,
+             co.name as linked_company_name,
+             ct.name as linked_contact_name, ct.phone as linked_contact_phone,
+             p.name as pipeline_name,
              (SELECT COUNT(*) FROM deal_insights di WHERE di.deal_id = d.id) as insights_count,
              EXTRACT(EPOCH FROM (NOW() - d.stage_entered_at)) / 86400 as days_in_stage
       FROM deals d
       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
       LEFT JOIN users u ON u.id = d.owner_id
+      LEFT JOIN companies co ON co.id = d.company_id
+      LEFT JOIN contacts ct ON ct.id = d.contact_id
+      LEFT JOIN pipelines p ON p.id = d.pipeline_id
       WHERE d.organization_id = $1`;
     const params = [orgId];
     let idx = 2;
 
+    if (pipeline_id) {
+      sql += ` AND d.pipeline_id = $${idx++}`;
+      params.push(pipeline_id);
+    }
     if (status) {
       sql += ` AND d.status = $${idx++}`;
       params.push(status);
@@ -366,17 +713,23 @@ router.get('/deals', async (req, res, next) => {
   }
 });
 
-// Find deal by phone (for N8N)
+// Find deal by phone (for N8N) — searches both deals.contact_phone and contacts.phone
 router.get('/deals/by-phone/:phone', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const { phone } = req.params;
 
-    const result = await query(
-      `SELECT d.*, ps.name as stage_name, ps.color as stage_color
+    // First try via contacts table (new model)
+    let result = await query(
+      `SELECT d.*, ps.name as stage_name, ps.color as stage_color, p.name as pipeline_name,
+              ct.name as linked_contact_name, ct.phone as linked_contact_phone,
+              co.name as linked_company_name
        FROM deals d
        LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
-       WHERE d.organization_id = $1 AND d.contact_phone = $2
+       LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       LEFT JOIN contacts ct ON ct.id = d.contact_id
+       LEFT JOIN companies co ON co.id = d.company_id
+       WHERE d.organization_id = $1 AND (d.contact_phone = $2 OR ct.phone = $2)
        ORDER BY d.created_at DESC LIMIT 1`,
       [orgId, phone]
     );
@@ -455,28 +808,33 @@ router.post('/deals', async (req, res, next) => {
     const {
       title, contact_name, contact_email, contact_phone, company_name,
       owner_id, value, source = 'whatsapp', temperature = 'warm',
-      tags, custom_fields,
+      tags, custom_fields, pipeline_id, company_id, contact_id,
     } = req.body;
 
-    // Get first pipeline stage
-    const stageResult = await query(
-      `SELECT id FROM pipeline_stages
-       WHERE organization_id = $1 AND is_won = false AND is_lost = false
-       ORDER BY position LIMIT 1`,
-      [orgId]
-    );
-
+    // Get first pipeline stage for the given pipeline (or any)
+    let stageQuery = `SELECT id FROM pipeline_stages
+       WHERE organization_id = $1 AND is_won = false AND is_lost = false`;
+    const stageParams = [orgId];
+    if (pipeline_id) {
+      stageQuery += ' AND pipeline_id = $2';
+      stageParams.push(pipeline_id);
+    }
+    stageQuery += ' ORDER BY position LIMIT 1';
+    const stageResult = await query(stageQuery, stageParams);
     const stageId = stageResult.rows[0]?.id || null;
 
     const result = await query(
-      `INSERT INTO deals (organization_id, pipeline_stage_id, title, contact_name, contact_email,
-        contact_phone, company_name, owner_id, value, source, temperature, tags, custom_fields, stage_entered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+      `INSERT INTO deals (organization_id, pipeline_stage_id, pipeline_id, title, contact_name, contact_email,
+        contact_phone, company_name, owner_id, value, source, temperature, tags, custom_fields,
+        company_id, contact_id, stage_entered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
        RETURNING *`,
       [
-        orgId, stageId, title || `Lead - ${contact_name || contact_phone}`,
+        orgId, stageId, pipeline_id || null,
+        title || `Lead - ${contact_name || contact_phone}`,
         contact_name, contact_email, contact_phone, company_name,
         owner_id, value, source, temperature, tags || [], custom_fields || {},
+        company_id || null, contact_id || null,
       ]
     );
 
@@ -514,7 +872,7 @@ router.patch('/deals/:id', async (req, res, next) => {
       'title', 'contact_name', 'contact_email', 'contact_phone', 'company_name',
       'owner_id', 'value', 'probability', 'expected_close_date', 'status',
       'source', 'temperature', 'tags', 'custom_fields', 'lost_reason',
-      'pipeline_stage_id',
+      'pipeline_stage_id', 'pipeline_id', 'company_id', 'contact_id',
     ];
 
     for (const key of allowed) {
@@ -999,6 +1357,13 @@ router.get('/automations/:id/log', async (req, res, next) => {
 router.get('/stats', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
+    const { pipeline_id } = req.query;
+
+    // Build pipeline filter clause
+    const pipelineFilter = pipeline_id ? ' AND pipeline_id = $2' : '';
+    const pipelineStageFilter = pipeline_id ? ' AND ps.pipeline_id = $2' : '';
+    const dealsPipelineFilter = pipeline_id ? ' AND d.pipeline_id = $2' : '';
+    const baseParams = pipeline_id ? [orgId, pipeline_id] : [orgId];
 
     const [dealsResult, stagesResult, recentResult, rottingResult, avgCloseResult] = await Promise.all([
       query(
@@ -1010,8 +1375,8 @@ router.get('/stats', async (req, res, next) => {
            COALESCE(SUM(value) FILTER (WHERE status = 'won'), 0) as won_value,
            COUNT(*) FILTER (WHERE status = 'won' AND won_date >= NOW() - INTERVAL '30 days') as won_last_30d,
            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') as new_last_7d
-         FROM deals WHERE organization_id = $1`,
-        [orgId]
+         FROM deals WHERE organization_id = $1${pipelineFilter}`,
+        baseParams
       ),
       query(
         `SELECT ps.id, ps.name, ps.color, ps.position, ps.max_days,
@@ -1023,29 +1388,29 @@ router.get('/stats', async (req, res, next) => {
                 ) as avg_days_in_stage
          FROM pipeline_stages ps
          LEFT JOIN deals d ON d.pipeline_stage_id = ps.id AND d.status = 'open'
-         WHERE ps.organization_id = $1
+         WHERE ps.organization_id = $1${pipelineStageFilter}
          GROUP BY ps.id, ps.name, ps.color, ps.position, ps.max_days
          ORDER BY ps.position`,
-        [orgId]
+        baseParams
       ),
       query(
         `SELECT da.*, d.title as deal_title, u.name as user_name
          FROM deal_activities da
          JOIN deals d ON d.id = da.deal_id
          LEFT JOIN users u ON u.id = da.user_id
-         WHERE d.organization_id = $1
+         WHERE d.organization_id = $1${dealsPipelineFilter}
          ORDER BY da.created_at DESC LIMIT 15`,
-        [orgId]
+        baseParams
       ),
       query(
         `SELECT COUNT(*) as count
          FROM deals d
          JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
-         WHERE d.organization_id = $1
+         WHERE d.organization_id = $1${dealsPipelineFilter}
            AND d.status = 'open'
            AND ps.max_days IS NOT NULL
            AND EXTRACT(EPOCH FROM (NOW() - d.stage_entered_at)) / 86400 > ps.max_days`,
-        [orgId]
+        baseParams
       ),
       query(
         `SELECT COALESCE(
@@ -1053,8 +1418,8 @@ router.get('/stats', async (req, res, next) => {
            0
          ) as avg_days_to_close
          FROM deals
-         WHERE organization_id = $1 AND status = 'won' AND won_date IS NOT NULL`,
-        [orgId]
+         WHERE organization_id = $1${pipelineFilter} AND status = 'won' AND won_date IS NOT NULL`,
+        baseParams
       ),
     ]);
 
@@ -1077,6 +1442,143 @@ router.get('/stats', async (req, res, next) => {
         avg_days_in_stage: Math.round(s.avg_days_in_stage * 100) / 100,
       })),
       recent_activities: recentResult.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// REGISTER LEAD (N8N transactional endpoint)
+// ============================================
+// Single call: creates contact + company + deal in one go
+router.post('/register-lead', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const {
+      contact_name, contact_phone, contact_email,
+      company_name, company_cnpj, company_segment, company_city, company_state,
+      pipeline_name, deal_title, source = 'whatsapp', temperature = 'warm', value,
+    } = req.body;
+
+    if (!contact_name && !contact_phone) {
+      return res.status(400).json({ error: { message: 'contact_name ou contact_phone obrigatorio' } });
+    }
+
+    let contactId = null;
+    let companyId = null;
+
+    // 1. Find or create company
+    if (company_name) {
+      const existing = await query(
+        'SELECT id FROM companies WHERE organization_id = $1 AND name = $2 LIMIT 1',
+        [orgId, company_name]
+      );
+      if (existing.rows.length > 0) {
+        companyId = existing.rows[0].id;
+      } else {
+        const created = await query(
+          `INSERT INTO companies (organization_id, name, cnpj, segment, city, state)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [orgId, company_name, company_cnpj || null, company_segment || null, company_city || null, company_state || null]
+        );
+        companyId = created.rows[0].id;
+      }
+    }
+
+    // 2. Find or create contact (by phone)
+    if (contact_phone) {
+      const existing = await query(
+        'SELECT id FROM contacts WHERE organization_id = $1 AND phone = $2 LIMIT 1',
+        [orgId, contact_phone]
+      );
+      if (existing.rows.length > 0) {
+        contactId = existing.rows[0].id;
+        // Update company link if needed
+        if (companyId) {
+          await query('UPDATE contacts SET company_id = $1, updated_at = NOW() WHERE id = $2 AND company_id IS NULL', [companyId, contactId]);
+        }
+      } else {
+        const created = await query(
+          `INSERT INTO contacts (organization_id, company_id, name, email, phone)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [orgId, companyId, contact_name || 'Sem nome', contact_email || null, contact_phone]
+        );
+        contactId = created.rows[0].id;
+      }
+    } else {
+      // No phone — create contact by name
+      const created = await query(
+        `INSERT INTO contacts (organization_id, company_id, name, email)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [orgId, companyId, contact_name, contact_email || null]
+      );
+      contactId = created.rows[0].id;
+    }
+
+    // 3. Find pipeline by name (or use first active)
+    let pipelineId = null;
+    if (pipeline_name) {
+      const pResult = await query(
+        'SELECT id FROM pipelines WHERE organization_id = $1 AND name = $2 AND is_active = true LIMIT 1',
+        [orgId, pipeline_name]
+      );
+      pipelineId = pResult.rows[0]?.id || null;
+    }
+    if (!pipelineId) {
+      const pResult = await query(
+        'SELECT id FROM pipelines WHERE organization_id = $1 AND is_active = true ORDER BY position LIMIT 1',
+        [orgId]
+      );
+      pipelineId = pResult.rows[0]?.id || null;
+    }
+
+    // 4. Get first stage of the pipeline
+    let stageId = null;
+    if (pipelineId) {
+      const sResult = await query(
+        `SELECT id FROM pipeline_stages
+         WHERE organization_id = $1 AND pipeline_id = $2 AND is_won = false AND is_lost = false
+         ORDER BY position LIMIT 1`,
+        [orgId, pipelineId]
+      );
+      stageId = sResult.rows[0]?.id || null;
+    }
+
+    // 5. Create deal
+    const dealResult = await query(
+      `INSERT INTO deals (organization_id, pipeline_id, pipeline_stage_id, title,
+        contact_name, contact_phone, contact_email, company_name,
+        company_id, contact_id, source, temperature, value, tags, custom_fields, stage_entered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+       RETURNING *`,
+      [
+        orgId, pipelineId, stageId,
+        deal_title || `Lead - ${contact_name || contact_phone}`,
+        contact_name, contact_phone, contact_email, company_name,
+        companyId, contactId, source, temperature, value || null, [], {},
+      ]
+    );
+
+    const deal = dealResult.rows[0];
+
+    // 6. Log activity
+    await query(
+      `INSERT INTO deal_activities (deal_id, type, description)
+       VALUES ($1, 'note', $2)`,
+      [deal.id, `Lead registrado via ${source}${pipeline_name ? ' - Funil: ' + pipeline_name : ''}`]
+    );
+
+    // Return all created entities
+    const [contactData, companyData] = await Promise.all([
+      contactId ? query('SELECT * FROM contacts WHERE id = $1', [contactId]) : { rows: [] },
+      companyId ? query('SELECT * FROM companies WHERE id = $1', [companyId]) : { rows: [] },
+    ]);
+
+    res.status(201).json({
+      deal,
+      contact: contactData.rows[0] || null,
+      company: companyData.rows[0] || null,
     });
   } catch (error) {
     next(error);

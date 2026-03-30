@@ -284,9 +284,29 @@ export const capacityApi = {
 
 // CRM
 export const crmApi = {
-  // Pipeline
+  // Pipelines (multi-funnel)
+  pipelines: {
+    list: () =>
+      request<{ pipelines: import('@/types').Pipeline[] }>(`/api/crm/pipelines${withOrg()}`),
+    create: (data: Record<string, unknown>) =>
+      request<{ pipeline: import('@/types').Pipeline }>('/api/crm/pipelines', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ pipeline: import('@/types').Pipeline }>(`/api/crm/pipelines/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/api/crm/pipelines/${id}`, { method: 'DELETE' }),
+  },
+
+  // Pipeline Stages
   pipeline: Object.assign(
-    () => request<{ stages: import('@/types').PipelineStage[] }>(`/api/crm/pipeline${withOrg()}`),
+    (pipelineId?: string) => request<{ stages: import('@/types').PipelineStage[] }>(
+      `/api/crm/pipeline${withOrg(pipelineId ? { pipeline_id: pipelineId } : {})}`
+    ),
     {
       create: (data: Record<string, unknown>) =>
         request<{ stage: import('@/types').PipelineStage }>('/api/crm/pipeline', {
@@ -308,9 +328,69 @@ export const crmApi = {
     }
   ),
 
+  // Companies
+  companies: {
+    list: (filters?: { search?: string; segment?: string; limit?: string }) =>
+      request<{ companies: import('@/types').Company[]; count: number }>(
+        `/api/crm/companies${withOrg(filters)}`
+      ),
+    get: (id: string) =>
+      request<{ company: import('@/types').Company; contacts: import('@/types').Contact[]; deals: import('@/types').Deal[] }>(
+        `/api/crm/companies/${id}`
+      ),
+    search: (q: string) =>
+      request<{ companies: Pick<import('@/types').Company, 'id' | 'name' | 'cnpj' | 'segment' | 'city' | 'state'>[] }>(
+        `/api/crm/companies/search${withOrg({ q })}`
+      ),
+    create: (data: Record<string, unknown>) =>
+      request<{ company: import('@/types').Company }>('/api/crm/companies', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ company: import('@/types').Company }>(`/api/crm/companies/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/api/crm/companies/${id}`, { method: 'DELETE' }),
+  },
+
+  // Contacts (standalone)
+  contacts: {
+    list: (filters?: { search?: string; company_id?: string; limit?: string }) =>
+      request<{ contacts: import('@/types').Contact[]; count: number }>(
+        `/api/crm/contacts${withOrg(filters)}`
+      ),
+    get: (id: string) =>
+      request<{ contact: import('@/types').Contact; deals: import('@/types').Deal[] }>(
+        `/api/crm/contacts/${id}`
+      ),
+    search: (q: string) =>
+      request<{ contacts: Pick<import('@/types').Contact, 'id' | 'name' | 'phone' | 'email' | 'company_id' | 'company_name'>[] }>(
+        `/api/crm/contacts/search${withOrg({ q })}`
+      ),
+    byPhone: (phone: string) =>
+      request<{ contact: import('@/types').Contact | null; exists: boolean }>(
+        `/api/crm/contacts/by-phone/${phone}${withOrg()}`
+      ),
+    create: (data: Record<string, unknown>) =>
+      request<{ contact: import('@/types').Contact }>('/api/crm/contacts', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ contact: import('@/types').Contact }>(`/api/crm/contacts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/api/crm/contacts/${id}`, { method: 'DELETE' }),
+  },
+
   // Deals
   deals: {
-    list: (filters?: { status?: string; pipeline_stage_id?: string; owner_id?: string; search?: string }) =>
+    list: (filters?: { status?: string; pipeline_stage_id?: string; pipeline_id?: string; owner_id?: string; search?: string }) =>
       request<{ deals: import('@/types').Deal[]; count: number }>(
         `/api/crm/deals${withOrg(filters)}`
       ),
@@ -367,6 +447,15 @@ export const crmApi = {
     },
   },
 
+  // Register Lead (N8N transactional)
+  registerLead: (data: Record<string, unknown>) =>
+    request<{ deal: import('@/types').Deal; contact: import('@/types').Contact | null; company: import('@/types').Company | null }>(
+      '/api/crm/register-lead', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }
+    ),
+
   // Automations
   automations: {
     list: () =>
@@ -387,9 +476,11 @@ export const crmApi = {
       request<{ logs: import('@/types').DealAutomationLog[] }>(`/api/crm/automations/${id}/logs`),
   },
 
-  // Stats
-  stats: () =>
-    request<import('@/types').CrmStats>(`/api/crm/stats${withOrg()}`),
+  // Stats (supports pipeline_id filter)
+  stats: (pipelineId?: string) =>
+    request<import('@/types').CrmStats>(
+      `/api/crm/stats${withOrg(pipelineId ? { pipeline_id: pipelineId } : {})}`
+    ),
 }
 
 // Transcriptions / Atas

@@ -285,9 +285,23 @@ export interface CapacitySummaryData {
 // CRM Types
 // ============================================
 
+export interface Pipeline {
+  id: string
+  organization_id: string
+  name: string
+  description: string | null
+  position: number
+  is_active: boolean
+  open_deals?: string
+  pipeline_value?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface PipelineStage {
   id: string
   organization_id: string
+  pipeline_id: string | null
   name: string
   position: number
   color: string
@@ -297,15 +311,56 @@ export interface PipelineStage {
   description: string | null
 }
 
+export interface Company {
+  id: string
+  organization_id: string
+  name: string
+  cnpj: string | null
+  segment: string | null
+  city: string | null
+  state: string | null
+  phone: string | null
+  email: string | null
+  website: string | null
+  notes: string | null
+  contacts_count?: string
+  deals_count?: string
+  pipeline_value?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Contact {
+  id: string
+  organization_id: string
+  company_id: string | null
+  company_name?: string
+  name: string
+  email: string | null
+  phone: string | null
+  role: string | null
+  notes: string | null
+  deals_count?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Deal {
   id: string
   organization_id: string
   pipeline_stage_id: string | null
+  pipeline_id: string | null
+  company_id: string | null
+  contact_id: string | null
   title: string
   contact_name: string | null
   contact_email: string | null
   contact_phone: string | null
   company_name: string | null
+  linked_company_name?: string
+  linked_contact_name?: string
+  linked_contact_phone?: string
+  pipeline_name?: string
   owner_id: string | null
   owner_name?: string
   value: number | null
@@ -413,6 +468,9 @@ export interface CrmStats {
     won_value: string
     won_last_30d: string
     new_last_7d: string
+    avg_days_to_close?: number
+    conversion_rate?: number
+    rotting_deals?: number
   }
   stages_summary: Array<{
     id: string
@@ -421,6 +479,7 @@ export interface CrmStats {
     position: number
     deal_count: string
     total_value: string
+    avg_days_in_stage?: number
   }>
   recent_activities: DealActivity[]
 }
