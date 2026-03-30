@@ -22,7 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageContainer } from '@/components/layout/PageContainer'
-import { LoadingSpinner, ErrorState } from '@/components/shared/LoadingSpinner'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 import type {
   Deal, PipelineStage, CrmStats,
@@ -147,11 +147,13 @@ export default function CRM() {
   const [listSort, setListSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'updated_at', dir: 'desc' })
 
   // Data fetching
-  const { data: pipelinesData, isLoading: pipelinesLoading } = useQuery({
+  const { data: pipelinesData, isLoading: pipelinesLoading, isError: pipelinesError } = useQuery({
     queryKey: ['crm-pipelines'],
     queryFn: () => crmApi.pipelines.list(),
+    retry: 1,
   })
   const pipelines = pipelinesData?.pipelines ?? []
+  const hasPipelines = pipelines.length > 0 && !pipelinesError
 
   // Auto-select first pipeline if none selected
   useEffect(() => {
@@ -163,19 +165,19 @@ export default function CRM() {
   const { data: pipelineData, isLoading: pipelineLoading } = useQuery({
     queryKey: ['crm-pipeline', selectedPipelineId],
     queryFn: () => crmApi.pipeline(selectedPipelineId || undefined),
-    enabled: !!selectedPipelineId,
+    enabled: hasPipelines ? !!selectedPipelineId : true,
   })
 
   const { data: dealsData, isLoading: dealsLoading } = useQuery({
     queryKey: ['crm-deals', selectedPipelineId],
     queryFn: () => crmApi.deals.list(selectedPipelineId ? { pipeline_id: selectedPipelineId } : {}),
-    enabled: !!selectedPipelineId,
+    enabled: hasPipelines ? !!selectedPipelineId : true,
   })
 
   const { data: statsData } = useQuery({
     queryKey: ['crm-stats', selectedPipelineId],
     queryFn: () => crmApi.stats(selectedPipelineId || undefined),
-    enabled: !!selectedPipelineId,
+    enabled: hasPipelines ? !!selectedPipelineId : true,
   })
 
   const stages = pipelineData?.stages ?? []
@@ -243,8 +245,7 @@ export default function CRM() {
     },
   })
 
-  if (pipelinesLoading || pipelineLoading || dealsLoading) return <PageContainer><LoadingSpinner /></PageContainer>
-  if (!pipelinesData) return <PageContainer><ErrorState message="Erro ao carregar pipelines" /></PageContainer>
+  if ((!pipelinesError && pipelinesLoading) || pipelineLoading || dealsLoading) return <PageContainer><LoadingSpinner /></PageContainer>
 
   const activeStages = stages.filter(s => !s.is_won && !s.is_lost).sort((a, b) => a.position - b.position)
   const wonStage = stages.find(s => s.is_won)
