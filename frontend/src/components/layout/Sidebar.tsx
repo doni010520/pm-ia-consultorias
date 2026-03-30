@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { useState } from 'react'
 
 const navItems = [
+  { to: '/crm', icon: Target, label: 'CRM' },
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderKanban, label: 'Projetos' },
   { to: '/tasks', icon: CheckSquare, label: 'Tarefas' },
@@ -25,7 +26,6 @@ const navItems = [
   { to: '/reports', icon: BarChart3, label: 'Relatorios' },
   { to: '/team', icon: Users, label: 'Equipe' },
   { to: '/capacity', icon: Clock, label: 'Capacidade' },
-  { to: '/crm', icon: Target, label: 'CRM' },
 ]
 
 function NavContent() {

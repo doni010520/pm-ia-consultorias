@@ -380,7 +380,7 @@ export default function CRM() {
               <div className="inline-flex rounded-md shadow-sm">
                 <Button size="sm" className="rounded-r-none" onClick={() => setShowNewDeal(true)}>
                   <Plus className="h-4 w-4 mr-1.5" />
-                  Novo Lead
+                  Novo Negócio
                 </Button>
                 <Button
                   size="sm"
@@ -397,7 +397,7 @@ export default function CRM() {
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                   >
                     <Target className="h-3.5 w-3.5" />
-                    Novo Lead
+                    Novo Negócio
                   </button>
                   <button
                     onClick={() => { setShowNewCompany(true); setShowAddMenu(false) }}
@@ -2018,8 +2018,8 @@ function NewDealModal({ stages, pipelineId, onClose }: { stages: PipelineStage[]
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Novo Lead</DialogTitle>
-          <DialogDescription>Preencha as informacoes do lead</DialogDescription>
+          <DialogTitle>Novo Negócio</DialogTitle>
+          <DialogDescription>Preencha as informações do negócio</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
