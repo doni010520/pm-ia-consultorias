@@ -126,18 +126,25 @@ export default function CRM() {
   const [showNewDeal, setShowNewDeal] = useState(false)
   const [showAutomations, setShowAutomations] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [showPipelineDropdown, setShowPipelineDropdown] = useState(false)
+  const [showNewPipeline, setShowNewPipeline] = useState(false)
+  const [newPipelineName, setNewPipelineName] = useState('')
   const filterRef = useRef<HTMLDivElement>(null)
+  const pipelineDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close filter dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
         setShowFilters(false)
       }
+      if (pipelineDropdownRef.current && !pipelineDropdownRef.current.contains(e.target as Node)) {
+        setShowPipelineDropdown(false)
+      }
     }
-    if (showFilters) document.addEventListener('mousedown', handleClick)
+    if (showFilters || showPipelineDropdown) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [showFilters])
+  }, [showFilters, showPipelineDropdown])
 
   // Kanban collapsed state for won/lost
   const [wonExpanded, setWonExpanded] = useState(false)
@@ -245,6 +252,18 @@ export default function CRM() {
     },
   })
 
+  // Create pipeline mutation
+  const createPipelineMutation = useMutation({
+    mutationFn: (data: { name: string }) => crmApi.pipelines.create(data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['crm-pipelines'] })
+      setSelectedPipelineId(result.pipeline.id)
+      setNewPipelineName('')
+      setShowNewPipeline(false)
+      setShowPipelineDropdown(false)
+    },
+  })
+
   if ((!pipelinesError && pipelinesLoading) || pipelineLoading || dealsLoading) return <PageContainer><LoadingSpinner /></PageContainer>
 
   const activeStages = stages.filter(s => !s.is_won && !s.is_lost).sort((a, b) => a.position - b.position)
@@ -267,9 +286,88 @@ export default function CRM() {
       {/* ============================================ */}
       <div className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">CRM</h1>
-            <p className="text-sm text-slate-500 mt-0.5">{selectedPipeline?.name || 'Pipeline de vendas'}</p>
+            {/* Pipeline Selector Dropdown */}
+            {hasPipelines && (
+              <div className="relative" ref={pipelineDropdownRef}>
+                <button
+                  onClick={() => setShowPipelineDropdown(!showPipelineDropdown)}
+                  className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
+                >
+                  <span className="max-w-[200px] truncate">{selectedPipeline?.name || 'Selecionar funil'}</span>
+                  <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${showPipelineDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showPipelineDropdown && (
+                  <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg border shadow-lg py-1 min-w-[240px]">
+                    {pipelines.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setSelectedPipelineId(p.id); setShowPipelineDropdown(false) }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${
+                          selectedPipelineId === p.id
+                            ? 'bg-slate-100 text-slate-900 font-medium'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        <div className="flex items-center gap-2 ml-2">
+                          {p.open_deals && parseInt(p.open_deals) > 0 && (
+                            <span className="text-[10px] bg-slate-200 text-slate-500 rounded-full h-4 min-w-[16px] px-1 inline-flex items-center justify-center">
+                              {p.open_deals}
+                            </span>
+                          )}
+                          {selectedPipelineId === p.id && (
+                            <Check className="h-3.5 w-3.5 text-slate-900" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+
+                    <div className="border-t border-slate-100 mt-1 pt-1">
+                      {!showNewPipeline ? (
+                        <button
+                          onClick={() => setShowNewPipeline(true)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Novo funil
+                        </button>
+                      ) : (
+                        <div className="px-3 py-2 flex items-center gap-2">
+                          <Input
+                            autoFocus
+                            value={newPipelineName}
+                            onChange={e => setNewPipelineName(e.target.value)}
+                            placeholder="Nome do funil"
+                            className="h-7 text-sm flex-1"
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && newPipelineName.trim()) {
+                                createPipelineMutation.mutate({ name: newPipelineName.trim() })
+                              }
+                              if (e.key === 'Escape') { setShowNewPipeline(false); setNewPipelineName('') }
+                            }}
+                          />
+                          <button
+                            onClick={() => { if (newPipelineName.trim()) createPipelineMutation.mutate({ name: newPipelineName.trim() }) }}
+                            className="text-slate-400 hover:text-emerald-600"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => { setShowNewPipeline(false); setNewPipelineName('') }}
+                            className="text-slate-400 hover:text-red-500"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowAutomations(true)}>
@@ -282,32 +380,6 @@ export default function CRM() {
             </Button>
           </div>
         </div>
-
-        {/* Pipeline Tabs */}
-        {pipelines.length > 1 && (
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
-            {pipelines.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedPipelineId(p.id)}
-                className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  selectedPipelineId === p.id
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {p.name}
-                {p.open_deals && parseInt(p.open_deals) > 0 && (
-                  <span className={`text-[10px] rounded-full h-4 min-w-[16px] px-1 inline-flex items-center justify-center ${
-                    selectedPipelineId === p.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-500'
-                  }`}>
-                    {p.open_deals}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Stats Bar */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
