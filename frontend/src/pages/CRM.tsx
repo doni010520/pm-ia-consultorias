@@ -25,7 +25,7 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner, ErrorState } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 import type {
-  Deal, PipelineStage, Pipeline, CrmStats,
+  Deal, PipelineStage, CrmStats,
 } from '@/types'
 
 // ============================================
@@ -511,7 +511,6 @@ export default function CRM() {
       {view === 'dashboard' && (
         <DashboardView
           stages={activeStages}
-          allDeals={allDeals}
           openDeals={openDeals}
           wonDeals={wonDeals}
           lostDeals={lostDeals}
@@ -598,9 +597,8 @@ const SOURCE_COLORS: Record<string, string> = {
 }
 const TEMP_COLORS: Record<string, string> = { hot: '#ef4444', warm: '#f59e0b', cold: '#3b82f6' }
 
-function DashboardView({ stages, allDeals, openDeals, wonDeals, lostDeals, stats, onDealClick }: {
+function DashboardView({ stages, openDeals, wonDeals, lostDeals, stats, onDealClick }: {
   stages: PipelineStage[]
-  allDeals: Deal[]
   openDeals: Deal[]
   wonDeals: Deal[]
   lostDeals: Deal[]
@@ -803,7 +801,7 @@ function DashboardView({ stages, allDeals, openDeals, wonDeals, lostDeals, stats
                   <XAxis type="number" tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} fontSize={11} tick={{ fill: '#94a3b8' }} />
                   <YAxis type="category" dataKey="name" width={90} fontSize={11} tick={{ fill: '#64748b' }} />
                   <Tooltip
-                    formatter={(value: number) => [formatCurrency(value), 'Valor']}
+                    formatter={(value) => [formatCurrency(value as number), 'Valor']}
                     contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
