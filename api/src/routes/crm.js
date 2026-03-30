@@ -1451,6 +1451,35 @@ router.get('/stats', async (req, res, next) => {
 // ============================================
 // REGISTER LEAD (N8N transactional endpoint)
 // ============================================
+// CNPJ Lookup via BrasilAPI
+// ============================================
+router.get('/cnpj/:cnpj', async (req, res, next) => {
+  try {
+    const digits = req.params.cnpj.replace(/\D/g, '');
+    if (digits.length !== 14) return res.status(400).json({ error: 'CNPJ deve ter 14 dígitos' });
+
+    const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+    if (!response.ok) return res.status(404).json({ error: 'CNPJ não encontrado' });
+
+    const data = await response.json();
+    res.json({
+      cnpj: data.cnpj,
+      razao_social: data.razao_social,
+      nome_fantasia: data.nome_fantasia,
+      segment: data.cnae_fiscal_descricao,
+      city: data.municipio,
+      state: data.uf,
+      phone: data.ddd_telefone_1 || null,
+      email: data.email || null,
+      endereco: data.logradouro ? `${data.logradouro}, ${data.numero} - ${data.bairro}` : null,
+      cep: data.cep,
+      situacao: data.descricao_situacao_cadastral,
+      abertura: data.data_inicio_atividade,
+    });
+  } catch (err) { next(err); }
+});
+
+// ============================================
 // Single call: creates contact + company + deal in one go
 router.post('/register-lead', async (req, res, next) => {
   try {

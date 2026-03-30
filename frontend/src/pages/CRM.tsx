@@ -2261,6 +2261,8 @@ function NewCompanyModal({ onClose }: { onClose: () => void }) {
     name: '', cnpj: '', segment: '', city: '', state: '',
     phone: '', email: '', website: '', notes: '',
   })
+  const [cnpjLoading, setCnpjLoading] = useState(false)
+  const [cnpjError, setCnpjError] = useState('')
 
   const createMutation = useMutation({
     mutationFn: (d: Record<string, unknown>) => crmApi.companies.create(d),
@@ -2269,6 +2271,31 @@ function NewCompanyModal({ onClose }: { onClose: () => void }) {
       onClose()
     },
   })
+
+  const fetchCnpj = async (cnpj: string) => {
+    const digits = cnpj.replace(/\D/g, '')
+    if (digits.length !== 14) return
+    setCnpjLoading(true)
+    setCnpjError('')
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`)
+      if (!res.ok) throw new Error('CNPJ não encontrado')
+      const data = await res.json()
+      setForm(p => ({
+        ...p,
+        name: p.name || data.nome_fantasia || data.razao_social || '',
+        segment: p.segment || (data.cnae_fiscal_descricao || ''),
+        city: p.city || (data.municipio || ''),
+        state: p.state || (data.uf || ''),
+        phone: p.phone || (data.ddd_telefone_1 ? `(${data.ddd_telefone_1.slice(0, 2)}) ${data.ddd_telefone_1.slice(2)}` : ''),
+        email: p.email || (data.email || ''),
+      }))
+    } catch {
+      setCnpjError('CNPJ não encontrado na Receita Federal')
+    } finally {
+      setCnpjLoading(false)
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -2294,8 +2321,15 @@ function NewCompanyModal({ onClose }: { onClose: () => void }) {
               <Input value={form.name} onChange={e => u('name', e.target.value)} placeholder="Ex: Padaria Silva" className="text-sm" />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">CNPJ</label>
-              <Input value={form.cnpj} onChange={e => u('cnpj', e.target.value)} placeholder="00.000.000/0000-00" className="text-sm" />
+              <label className="text-xs font-medium text-slate-600 mb-1 block">CNPJ {cnpjLoading && <span className="text-blue-500 ml-1">Buscando...</span>}</label>
+              <Input
+                value={form.cnpj}
+                onChange={e => { u('cnpj', e.target.value); setCnpjError('') }}
+                onBlur={e => fetchCnpj(e.target.value)}
+                placeholder="00.000.000/0000-00"
+                className={`text-sm ${cnpjError ? 'border-red-300' : ''}`}
+              />
+              {cnpjError && <span className="text-xs text-red-500 mt-0.5 block">{cnpjError}</span>}
             </div>
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Segmento</label>
