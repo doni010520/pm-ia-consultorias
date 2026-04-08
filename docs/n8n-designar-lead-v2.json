@@ -1,0 +1,428 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nome"
+            },
+            {
+              "name": "telefone"
+            },
+            {
+              "name": "produto"
+            },
+            {
+              "name": "mensagem"
+            },
+            {
+              "name": "executivo"
+            },
+            {
+              "name": "token"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1088,
+        -64
+      ],
+      "id": "6ee31927-23f1-467a-9091-228e7182b9fb",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const dados = item.json;\n  \n  // Mapa de executivos\n  const executivos = {\n    'helen': { nome: 'Helen Monte', telefone: '8194969669', email: 'helen@sucessonoresultado.com.br' },\n    'helen monte': { nome: 'Helen Monte', telefone: '8194969669', email: 'helen@sucessonoresultado.com.br' },\n    'maria helena': { nome: 'Maria Helena', telefone: '8199736503', email: 'maria.helena@sucessonoresultado.com.br' },\n    'maria': { nome: 'Maria Helena', telefone: '8199736503', email: 'maria.helena@sucessonoresultado.com.br' },\n    'andre': { nome: 'André Augusto', telefone: '11958430345', email: 'andre@sucessonoresultado.com.br' },\n    'andré': { nome: 'André Augusto', telefone: '11958430345', email: 'andre@sucessonoresultado.com.br' },\n    'andre augusto': { nome: 'André Augusto', telefone: '11958430345', email: 'andre@sucessonoresultado.com.br' },\n    'andré augusto': { nome: 'André Augusto', telefone: '11958430345', email: 'andre@sucessonoresultado.com.br' },\n    'alex': { nome: 'Alex Araújo', telefone: '13996871134', email: 'alex@sucessonoresultado.com.br' },\n    'alex araujo': { nome: 'Alex Araújo', telefone: '13996871134', email: 'alex@sucessonoresultado.com.br' },\n    'alex araújo': { nome: 'Alex Araújo', telefone: '13996871134', email: 'alex@sucessonoresultado.com.br' },\n    'gabriela': { nome: 'Gabriela Câmara', telefone: '8199092839', email: 'gabriela@sucessonoresultado.com.br' },\n    'gabriela camara': { nome: 'Gabriela Câmara', telefone: '8199092839', email: 'gabriela@sucessonoresultado.com.br' },\n    'gabriela câmara': { nome: 'Gabriela Câmara', telefone: '8199092839', email: 'gabriela@sucessonoresultado.com.br' },\n    'lucia': { nome: 'Lúcia Carcerere', telefone: '21981807478', email: 'lucia@sucessonoresultado.com.br' },\n    'lúcia': { nome: 'Lúcia Carcerere', telefone: '21981807478', email: 'lucia@sucessonoresultado.com.br' },\n    'lucia carcerere': { nome: 'Lúcia Carcerere', telefone: '21981807478', email: 'lucia@sucessonoresultado.com.br' },\n    'lúcia carcerere': { nome: 'Lúcia Carcerere', telefone: '21981807478', email: 'lucia@sucessonoresultado.com.br' },\n    'carolina': { nome: 'Carolina Câmara', telefone: '11960757304', email: 'carolina@sucessonoresultado.com.br' },\n    'carolina camara': { nome: 'Carolina Câmara', telefone: '11960757304', email: 'carolina@sucessonoresultado.com.br' },\n    'carolina câmara': { nome: 'Carolina Câmara', telefone: '11960757304', email: 'carolina@sucessonoresultado.com.br' },\n    'ana clara': { nome: 'Ana Clara', telefone: '8196747235', email: 'anaclaramedeiros@hotmail.com' },\n    'ana': { nome: 'Ana Clara', telefone: '8196747235', email: 'anaclaramedeiros@hotmail.com' },\n    'irelene': { nome: 'Irelene Guerreiro', telefone: '19996065250', email: 'ireleneguerreiro76@hotmail.com' },\n    'irelene guerreiro': { nome: 'Irelene Guerreiro', telefone: '19996065250', email: 'ireleneguerreiro76@hotmail.com' }\n  };\n  \n  // Normaliza o nome do executivo para busca\n  const executivoBusca = (dados.executivo || '').toLowerCase().trim();\n  \n  // Busca o executivo\n  const executivoEncontrado = executivos[executivoBusca];\n  \n  if (!executivoEncontrado) {\n    // Lista de executivos disponíveis para mensagem de erro\n    const nomesDisponiveis = ['Helen Monte', 'Maria Helena', 'André Augusto', 'Alex Araújo', 'Gabriela Câmara', 'Lúcia Carcerere', 'Carolina Câmara', 'Ana Clara', 'Irelene Guerreiro'];\n    \n    return {\n      json: {\n        ...dados,\n        erro: true,\n        mensagem_erro: `Executivo \"${dados.executivo}\" não encontrado. Executivos disponíveis: ${nomesDisponiveis.join(', ')}`,\n        executivo_encontrado: null\n      }\n    };\n  }\n  \n  // Limpa telefone do lead\n  const telefoneLeadLimpo = (dados.telefone || '').replace(/\\D/g, '');\n  const telefoneLeadFormatado = telefoneLeadLimpo.startsWith('55') ? telefoneLeadLimpo : '55' + telefoneLeadLimpo;\n  \n  // Limpa telefone do executivo\n  const telefoneExecutivoLimpo = executivoEncontrado.telefone.replace(/\\D/g, '');\n  const telefoneExecutivoFormatado = '55' + telefoneExecutivoLimpo;\n  \n  // Primeiro nome do executivo\n  const primeiroNomeExecutivo = executivoEncontrado.nome.split(' ')[0];\n  \n  return {\n    json: {\n      ...dados,\n      erro: false,\n      executivo_encontrado: executivoEncontrado,\n      telefone_lead_limpo: telefoneLeadLimpo,\n      telefone_lead_formatado: telefoneLeadFormatado,\n      telefone_executivo_formatado: telefoneExecutivoFormatado,\n      primeiro_nome_executivo: primeiroNomeExecutivo\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        -64
+      ],
+      "id": "4421de73-f8f9-47b7-b32e-ee94c0e77a9b",
+      "name": "Identificar Executivo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-001",
+              "leftValue": "={{ $json.erro }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -656,
+        -64
+      ],
+      "id": "82b0266c-7016-4ce9-8f0c-09a11437f9c8",
+      "name": "Executivo Encontrado?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const dados = item.json;\n  const exec = dados.executivo_encontrado;\n  const primeiroNome = dados.primeiro_nome_executivo;\n  \n  // Monta mensagem WhatsApp\n  const mensagemWhatsApp = `🎯 *LEAD DESIGNADO PRA VOCÊ, ${primeiroNome.toUpperCase()}!*\n\nOi ${primeiroNome}! 👋 Aqui é a Rica 🤖\n\nA equipe direcionou esse lead especificamente pra você:\n\n━━━━━━━━━━━━━━\n📋 *DADOS DO LEAD*\n━━━━━━━━━━━━━━\n\n👤 *Nome:* ${dados.nome || 'Não informado'}\n📱 *Tel:* ${dados.telefone || 'Não informado'}\n🎯 *Interesse:* ${dados.produto || 'Não informado'}\n\n━━━━━━━━━━━━━━\n💬 *CONTEXTO*\n━━━━━━━━━━━━━━\n_\"${dados.mensagem || 'Sem observações adicionais'}\"_\n\n⚡ *Clique para chamar no WhatsApp:*\nwa.me/${dados.telefone_lead_formatado}\n\n⏰ _Recebido: ${new Date().toLocaleString('pt-BR')}_\n\nBoa venda! 💪\n🤖 _Rica - Assistente de Vendas_`;\n  \n  return {\n    json: {\n      ...dados,\n      whatsapp_payload: {\n        to: dados.telefone_executivo_formatado,\n        text: mensagemWhatsApp\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        48
+      ],
+      "id": "24e198fc-c46f-4ae1-8f70-72cc27eb9bcd",
+      "name": "Montar Mensagem WhatsApp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://benitechlab.uazapi.com/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $('When Executed by Another Workflow').item.json.token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.whatsapp_payload.to }}\",\n  \"text\": {{ $json.whatsapp_payload.text.toJsonString() }},\n  \"delay\": \"3000\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -208,
+        48
+      ],
+      "id": "8e7de02a-cf4a-43e0-b3f0-5c0b88fc6b47",
+      "name": "Enviar WhatsApp",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Identificar Executivo').item.json.executivo_encontrado.email }}",
+        "subject": "=🎯 Lead Designado - {{ $('When Executed by Another Workflow').item.json.produto }}",
+        "message": "=<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px 10px 0 0;\">\n    <h2 style=\"color: white; margin: 0;\">🤖 Rica - Assistente de Vendas</h2>\n  </div>\n  \n  <div style=\"padding: 20px; background: #f8f9fa;\">\n    <p style=\"font-size: 16px;\">Oi <strong>{{ $('Identificar Executivo').item.json.primeiro_nome_executivo }}</strong>!</p>\n    \n    <p>A equipe direcionou esse lead <strong style=\"color: #5cb85c;\">especificamente pra você</strong>!</p>\n    \n    <div style=\"background: white; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px;\">\n      <h3 style=\"color: #333; margin-top: 0;\">🎯 LEAD DESIGNADO</h3>\n      \n      <table style=\"width: 100%; border-collapse: collapse;\">\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>👤 Nome:</strong></td>\n          <td style=\"padding: 8px 0;\">{{ $('When Executed by Another Workflow').item.json.nome }}</td>\n        </tr>\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>📱 Telefone:</strong></td>\n          <td style=\"padding: 8px 0;\"><a href=\"tel:{{ $('Identificar Executivo').item.json.telefone_lead_limpo }}\">{{ $('When Executed by Another Workflow').item.json.telefone }}</a></td>\n        </tr>\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>🎯 Produto:</strong></td>\n          <td style=\"padding: 8px 0;\"><span style=\"background: #667eea; color: white; padding: 2px 8px; border-radius: 3px;\">{{ $('When Executed by Another Workflow').item.json.produto }}</span></td>\n        </tr>\n      </table>\n      \n      <div style=\"background: #e8f4fd; padding: 15px; margin-top: 15px; border-radius: 5px;\">\n        <strong>💬 Contexto:</strong><br>\n        <em style=\"color: #555;\">\"{{ $('When Executed by Another Workflow').item.json.mensagem || 'Sem observações adicionais' }}\"</em>\n      </div>\n    </div>\n    \n    <div style=\"background: #d4edda; border: 1px solid #28a745; padding: 15px; border-radius: 5px; margin: 20px 0;\">\n      <p style=\"margin: 0; color: #155724;\">\n        <strong>{{ $('Identificar Executivo').item.json.primeiro_nome_executivo }}</strong>, esse lead foi direcionado especificamente pra você pela equipe!<br>\n        Entre em contato o mais rápido possível. 💪\n      </p>\n    </div>\n    \n    <hr style=\"border: none; border-top: 1px solid #dee2e6; margin: 20px 0;\">\n    \n    <p style=\"color: #6c757d; font-size: 12px; margin: 5px 0;\">\n      <strong>Abraços digitais,</strong><br>\n      Rica - Assistente de Vendas 🤖<br><br>\n      \n      <em>Recebido em: {{ $now.format('dd/MM/yyyy HH:mm:ss') }}</em>\n    </p>\n  </div>\n</div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        16,
+        48
+      ],
+      "id": "a455d4bd-b0ff-4962-9f1a-8a862e050ca1",
+      "name": "Enviar Email",
+      "webhookId": "f3a662c7-a16c-460e-a0bf-ee90a01b3b1c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "q6xUIumBPFd4D2wF",
+          "name": "RICA"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success-001",
+              "name": "sucesso",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "success-002",
+              "name": "mensagem",
+              "value": "=Lead designado com sucesso para {{ $('Identificar Executivo').item.json.executivo_encontrado.nome }}!",
+              "type": "string"
+            },
+            {
+              "id": "success-003",
+              "name": "executivo",
+              "value": "={{ $('Identificar Executivo').item.json.executivo_encontrado.nome }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        48
+      ],
+      "id": "0123802b-a248-4dd9-8407-bbdcdd88a5f7",
+      "name": "Retorno Sucesso"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-001",
+              "name": "sucesso",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error-002",
+              "name": "mensagem",
+              "value": "={{ $json.mensagem_erro }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -432,
+        -160
+      ],
+      "id": "262a816a-4653-4ac2-a86e-edb45c292d99",
+      "name": "Retorno Erro"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/by-phone/{{ $('When Executed by Another Workflow').item.json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -208,
+        280
+      ],
+      "id": "crm-buscar-contato-02",
+      "name": "CRM Buscar Contato",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "crm-cond-002",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        16,
+        280
+      ],
+      "id": "crm-if-exists-02",
+      "name": "CRM Contato Existe?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const contact = item.json.contact || {};\n  const deals = contact.deals || [];\n  const openDeals = deals.filter(d => d.status === 'open');\n  const deal = openDeals.length > 0 ? openDeals[0] : (deals.length > 0 ? deals[0] : null);\n  \n  return {\n    json: {\n      deal_id: deal ? deal.id : null,\n      has_deal: !!deal,\n      executivo: $('Identificar Executivo').item.json.executivo_encontrado ? $('Identificar Executivo').item.json.executivo_encontrado.nome : $('When Executed by Another Workflow').item.json.executivo,\n      produto: $('When Executed by Another Workflow').item.json.produto,\n      mensagem: $('When Executed by Another Workflow').item.json.mensagem\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        280
+      ],
+      "id": "crm-extract-deal-02",
+      "name": "CRM Extrair Deal"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $json.deal_id }}/activities",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"whatsapp\",\n  \"description\": \"Lead designado para {{ $json.executivo }} - {{ $json.produto }}. {{ $json.mensagem }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        280
+      ],
+      "id": "crm-registrar-atividade-02",
+      "name": "CRM Registrar Atividade",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Identificar Executivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar Executivo": {
+      "main": [
+        [
+          {
+            "node": "Executivo Encontrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executivo Encontrado?": {
+      "main": [
+        [
+          {
+            "node": "Retorno Erro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Montar Mensagem WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Mensagem WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CRM Buscar Contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Email": {
+      "main": [
+        [
+          {
+            "node": "Retorno Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Buscar Contato": {
+      "main": [
+        [
+          {
+            "node": "CRM Contato Existe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Contato Existe?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "CRM Extrair Deal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Extrair Deal": {
+      "main": [
+        [
+          {
+            "node": "CRM Registrar Atividade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6e58520b716280a1928c28da49791b952407e20ffe89f4b983741f7630c375f4"
+  }
+}

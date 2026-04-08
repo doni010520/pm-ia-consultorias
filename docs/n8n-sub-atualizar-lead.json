@@ -1,0 +1,75 @@
+{
+  "name": "CRM - Atualizar Lead",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "deal_id" },
+            { "name": "temperature" },
+            { "name": "value" },
+            { "name": "contact_name" },
+            { "name": "contact_email" },
+            { "name": "company_name" },
+            { "name": "status" },
+            { "name": "lost_reason" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-atualizar-lead",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta body com apenas os campos preenchidos (remove vazios)\nconst items = $input.all();\nreturn items.map(item => {\n  const d = item.json;\n  const body = {};\n  if (d.temperature) body.temperature = d.temperature;\n  if (d.value) body.value = parseFloat(d.value);\n  if (d.contact_name) body.contact_name = d.contact_name;\n  if (d.contact_email) body.contact_email = d.contact_email;\n  if (d.company_name) body.company_name = d.company_name;\n  if (d.status) body.status = d.status;\n  if (d.lost_reason) body.lost_reason = d.lost_reason;\n  return { json: { deal_id: d.deal_id, body: body } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "build-body-lead",
+      "name": "Montar Body"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $json.deal_id }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "timeout": 10000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "id": "http-atualizar-lead",
+      "name": "Atualizar Deal",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "sucesso", "value": true, "type": "boolean" },
+            { "id": "r2", "name": "mensagem", "value": "Deal atualizado", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [720, 0],
+      "id": "return-atualizar-lead",
+      "name": "Retorno"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Montar Body", "type": "main", "index": 0 }]] },
+    "Montar Body": { "main": [[{ "node": "Atualizar Deal", "type": "main", "index": 0 }]] },
+    "Atualizar Deal": { "main": [[{ "node": "Retorno", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

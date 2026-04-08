@@ -1,0 +1,59 @@
+{
+  "name": "CRM - Consultar CNPJ",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "cnpj" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-consultar-cnpj",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Limpa CNPJ - remove tudo que não é número\nconst items = $input.all();\nreturn items.map(item => {\n  const cnpjLimpo = (item.json.cnpj || '').replace(/\\D/g, '');\n  return { json: { cnpj_limpo: cnpjLimpo } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "limpar-cnpj",
+      "name": "Limpar CNPJ"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://brasilapi.com.br/api/cnpj/v1/{{ $json.cnpj_limpo }}",
+        "options": { "timeout": 15000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "id": "http-brasilapi",
+      "name": "Consultar BrasilAPI",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const d = item.json;\n  \n  // Se houve erro\n  if (d.error || d.statusCode >= 400 || d.message) {\n    return { json: { sucesso: false, mensagem: 'CNPJ não encontrado na Receita Federal' } };\n  }\n  \n  // Extrai atividade principal\n  let segmento = '';\n  if (d.cnae_fiscal_descricao) {\n    segmento = d.cnae_fiscal_descricao;\n  } else if (d.cnaes_secundarios && d.cnaes_secundarios.length > 0) {\n    segmento = d.cnaes_secundarios[0].descricao || '';\n  }\n  \n  return {\n    json: {\n      sucesso: true,\n      cnpj: d.cnpj || '',\n      razao_social: d.razao_social || '',\n      nome_fantasia: d.nome_fantasia || d.razao_social || '',\n      segment: segmento,\n      city: d.municipio || '',\n      state: d.uf || '',\n      phone: d.ddd_telefone_1 || '',\n      email: d.email || '',\n      endereco: `${d.logradouro || ''}, ${d.numero || ''} - ${d.bairro || ''}`,\n      cep: d.cep || '',\n      situacao: d.descricao_situacao_cadastral || 'ATIVA',\n      abertura: d.data_inicio_atividade || ''\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "id": "format-cnpj",
+      "name": "Formatar Resposta"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Limpar CNPJ", "type": "main", "index": 0 }]] },
+    "Limpar CNPJ": { "main": [[{ "node": "Consultar BrasilAPI", "type": "main", "index": 0 }]] },
+    "Consultar BrasilAPI": { "main": [[{ "node": "Formatar Resposta", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

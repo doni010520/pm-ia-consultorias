@@ -1,0 +1,60 @@
+{
+  "name": "CRM - Registrar Lead",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "contact_name" },
+            { "name": "contact_phone" },
+            { "name": "contact_email" },
+            { "name": "company_name" },
+            { "name": "company_segment" },
+            { "name": "company_city" },
+            { "name": "company_state" },
+            { "name": "pipeline_name" },
+            { "name": "deal_title" },
+            { "name": "temperature" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-registrar-lead",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sucessocrm.benitechlab.com/api/crm/register-lead",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"organization_id\": \"00000000-0000-0000-0000-000000000001\",\n  \"contact_name\": \"{{ $json.contact_name }}\",\n  \"contact_phone\": \"{{ $json.contact_phone }}\",\n  \"contact_email\": \"{{ $json.contact_email }}\",\n  \"company_name\": \"{{ $json.company_name }}\",\n  \"company_segment\": \"{{ $json.company_segment }}\",\n  \"company_city\": \"{{ $json.company_city }}\",\n  \"company_state\": \"{{ $json.company_state }}\",\n  \"pipeline_name\": \"{{ $json.pipeline_name || 'Consultorias' }}\",\n  \"deal_title\": \"{{ $json.deal_title }}\",\n  \"source\": \"whatsapp\",\n  \"temperature\": \"{{ $json.temperature || 'warm' }}\"\n}",
+        "options": { "timeout": 15000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "id": "http-registrar-lead",
+      "name": "Registrar Lead no CRM",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json;\n  // Se houve erro na API, retorna mensagem amigável\n  if (data.error || data.statusCode >= 400) {\n    return { json: { sucesso: false, mensagem: 'Erro ao registrar lead no CRM' } };\n  }\n  return {\n    json: {\n      sucesso: true,\n      deal_id: data.deal ? data.deal.id : null,\n      contact_id: data.contact ? data.contact.id : null,\n      company_id: data.company ? data.company.id : null,\n      deal_title: data.deal ? data.deal.title : null,\n      mensagem: `Lead registrado: ${data.deal ? data.deal.title : 'OK'}`\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "format-response-lead",
+      "name": "Formatar Resposta"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Registrar Lead no CRM", "type": "main", "index": 0 }]] },
+    "Registrar Lead no CRM": { "main": [[{ "node": "Formatar Resposta", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

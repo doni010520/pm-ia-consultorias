@@ -1,0 +1,46 @@
+{
+  "name": "CRM - Listar Estagios",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "pipeline_id" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-listar-estagios",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/pipeline?organization_id=00000000-0000-0000-0000-000000000001&pipeline_id={{ $json.pipeline_id }}",
+        "options": { "timeout": 10000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "id": "http-listar-estagios",
+      "name": "Listar Estagios",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const stages = item.json.stages || item.json || [];\n  const list = Array.isArray(stages) ? stages : [];\n  return {\n    json: {\n      estagios: list.map(s => ({ stage_id: s.id, nome: s.name, posicao: s.position, is_won: s.is_won, is_lost: s.is_lost }))\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "format-listar-estagios",
+      "name": "Formatar Resposta"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Listar Estagios", "type": "main", "index": 0 }]] },
+    "Listar Estagios": { "main": [[{ "node": "Formatar Resposta", "type": "main", "index": 0 }]] }
+  }
+}

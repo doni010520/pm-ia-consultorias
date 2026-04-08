@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "n8n-mcp": {
+      "command": "node",
+      "args": ["n8n-mcp-start.js"],
+      "cwd": "C:\\Users\\adoni\\OneDrive\\Documentos\\pm-ia-consultorias"
+    }
+  }
+}

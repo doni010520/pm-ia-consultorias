@@ -1,0 +1,46 @@
+{
+  "name": "CRM - Buscar Contato",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "telefone" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-buscar-contato",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/by-phone/{{ $json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "options": { "timeout": 10000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "id": "http-buscar-contato",
+      "name": "Buscar Contato",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const d = item.json;\n  if (!d.exists && !d.contact) {\n    return { json: { encontrado: false, mensagem: 'Contato não encontrado no CRM' } };\n  }\n  const c = d.contact || d;\n  const deals = c.deals || [];\n  const openDeals = deals.filter(dl => dl.status === 'open');\n  return {\n    json: {\n      encontrado: true,\n      contact_id: c.id,\n      nome: c.name,\n      email: c.email,\n      phone: c.phone,\n      role: c.role,\n      company_id: c.company_id,\n      company_name: c.company ? c.company.name : null,\n      deals_abertos: openDeals.length,\n      deals: openDeals.map(dl => ({ deal_id: dl.id, title: dl.title, pipeline_name: dl.pipeline_name, stage: dl.stage_name, temperature: dl.temperature, value: dl.value }))\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "format-buscar-contato",
+      "name": "Formatar Resposta"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Buscar Contato", "type": "main", "index": 0 }]] },
+    "Buscar Contato": { "main": [[{ "node": "Formatar Resposta", "type": "main", "index": 0 }]] }
+  }
+}
