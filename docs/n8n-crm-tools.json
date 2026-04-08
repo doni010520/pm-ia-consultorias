@@ -1,0 +1,250 @@
+{
+  "meta": {
+    "instanceId": "default"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "description": "Busca se o contato já existe no CRM pelo telefone. Retorna contato, empresa vinculada e todos os deals. USAR SEMPRE no início de toda conversa, antes de qualquer outra ação.",
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/by-phone/{{ $('Get_Info').item.json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "name": "buscar_contato",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [400, 800]
+    },
+    {
+      "parameters": {
+        "description": "Busca deal pelo telefone. FALLBACK: usar apenas se buscar_contato retornar exists=false mas suspeitar que o lead existe no modelo antigo.",
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/by-phone/{{ $('Get_Info').item.json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "name": "buscar_deal",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [650, 800]
+    },
+    {
+      "parameters": {
+        "description": "Cria contato + empresa + deal em uma única chamada transacional. Usar quando buscar_contato retornar exists=false. Parâmetros: contact_name (nome do contato), contact_email (email, opcional), company_name (nome da empresa, opcional), company_segment (segmento, opcional), company_city (cidade, opcional), company_state (estado sigla, opcional), pipeline_name (Consultorias, GPS, Treinamentos, App Alexy ou Jornada da Lucratividade - default Consultorias), deal_title (título do deal, ex: Lead - Nome), temperature (warm, hot ou cold - default warm).",
+        "method": "POST",
+        "url": "https://sucessocrm.benitechlab.com/api/crm/register-lead",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"organization_id\": \"00000000-0000-0000-0000-000000000001\",\n  \"contact_name\": \"{{ $fromAI('contact_name', 'Nome do contato') }}\",\n  \"contact_phone\": \"{{ $('Get_Info').item.json.telefone }}\",\n  \"contact_email\": \"{{ $fromAI('contact_email', 'Email do contato. Vazio se não souber') }}\",\n  \"company_name\": \"{{ $fromAI('company_name', 'Nome da empresa. Vazio se não souber') }}\",\n  \"company_segment\": \"{{ $fromAI('company_segment', 'Segmento da empresa. Vazio se não souber') }}\",\n  \"company_city\": \"{{ $fromAI('company_city', 'Cidade. Vazio se não souber') }}\",\n  \"company_state\": \"{{ $fromAI('company_state', 'Estado sigla. Vazio se não souber') }}\",\n  \"pipeline_name\": \"{{ $fromAI('pipeline_name', 'Nome do funil: Consultorias, GPS, Treinamentos, App Alexy ou Jornada da Lucratividade. Default: Consultorias') }}\",\n  \"deal_title\": \"{{ $fromAI('deal_title', 'Título do deal. Ex: Lead - João Silva') }}\",\n  \"source\": \"whatsapp\",\n  \"temperature\": \"{{ $fromAI('temperature', 'warm, hot ou cold. Default: warm') }}\"\n}",
+        "options": {}
+      },
+      "name": "registrar_lead",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [900, 800]
+    },
+    {
+      "parameters": {
+        "description": "Cria um novo deal para um contato que JÁ EXISTE em outro funil. NÃO usar para primeiro registro (usar registrar_lead). Parâmetros: title (título do deal), contact_id (ID do contato), company_id (ID da empresa, opcional), pipeline_id (ID do funil destino), contact_name (nome), contact_phone (telefone), temperature (warm/hot/cold).",
+        "method": "POST",
+        "url": "https://sucessocrm.benitechlab.com/api/crm/deals",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"organization_id\": \"00000000-0000-0000-0000-000000000001\",\n  \"title\": \"{{ $fromAI('title', 'Título do deal. Ex: GPS - João Silva') }}\",\n  \"contact_id\": \"{{ $fromAI('contact_id', 'UUID do contato') }}\",\n  \"company_id\": \"{{ $fromAI('company_id', 'UUID da empresa. Vazio se não tiver') }}\",\n  \"pipeline_id\": \"{{ $fromAI('pipeline_id', 'UUID do funil destino') }}\",\n  \"contact_name\": \"{{ $fromAI('contact_name', 'Nome do contato') }}\",\n  \"contact_phone\": \"{{ $('Get_Info').item.json.telefone }}\",\n  \"source\": \"whatsapp\",\n  \"temperature\": \"{{ $fromAI('temperature', 'warm, hot ou cold') }}\"\n}",
+        "options": {}
+      },
+      "name": "criar_deal",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [1150, 800]
+    },
+    {
+      "parameters": {
+        "description": "Lista todos os funis (pipelines) disponíveis com seus IDs e contagem de deals. Usar no início da conversa para cachear os IDs dos funis.",
+        "method": "GET",
+        "url": "https://sucessocrm.benitechlab.com/api/crm/pipelines?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "name": "listar_funis",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [1400, 800]
+    },
+    {
+      "parameters": {
+        "description": "Lista os estágios de um funil específico. Usar quando precisar mover um deal de estágio e precisar do ID do estágio destino. Parâmetro: pipeline_id (UUID do funil).",
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/pipeline?organization_id=00000000-0000-0000-0000-000000000001&pipeline_id={{ $fromAI('pipeline_id', 'UUID do funil') }}",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "name": "listar_estagios",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [400, 1000]
+    },
+    {
+      "parameters": {
+        "description": "Atualiza dados do deal conforme a conversa avança. Usar quando: pessoa informa empresa, email, demonstra urgência (temperature hot), informa valor do negócio, etc. Parâmetros: deal_id (UUID do deal), body (JSON com APENAS os campos que mudaram. Campos possíveis: temperature, value, contact_name, contact_email, contact_phone, company_name, tags, status, lost_reason, pipeline_id, company_id, contact_id).",
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $fromAI('deal_id', 'UUID do deal a atualizar') }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI('body', 'JSON object com APENAS os campos que mudaram. Ex: {\"temperature\": \"hot\", \"value\": 15000}') }}",
+        "options": {}
+      },
+      "name": "atualizar_lead",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [650, 1000]
+    },
+    {
+      "parameters": {
+        "description": "Atualiza dados do contato standalone. Usar quando descobrir nome real, email, cargo ou vincular a empresa diferente. Parâmetros: contact_id (UUID do contato), body (JSON com campos a atualizar. Campos possíveis: name, email, phone, role, company_id).",
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/{{ $fromAI('contact_id', 'UUID do contato a atualizar') }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI('body', 'JSON object com campos a atualizar. Ex: {\"name\": \"João Silva\", \"email\": \"joao@empresa.com\", \"role\": \"Proprietário\"}') }}",
+        "options": {}
+      },
+      "name": "atualizar_contato",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [900, 1000]
+    },
+    {
+      "parameters": {
+        "description": "Atualiza dados da empresa. Usar quando descobrir CNPJ, segmento, cidade, estado, telefone ou website. Parâmetros: company_id (UUID da empresa), body (JSON com campos a atualizar. Campos possíveis: name, cnpj, segment, city, state, phone, email, website, notes).",
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/companies/{{ $fromAI('company_id', 'UUID da empresa a atualizar') }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI('body', 'JSON object com campos a atualizar. Ex: {\"cnpj\": \"12.345.678/0001-90\", \"segment\": \"Panificação\", \"city\": \"Campinas\", \"state\": \"SP\"}') }}",
+        "options": {}
+      },
+      "name": "atualizar_empresa",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [1150, 1000]
+    },
+    {
+      "parameters": {
+        "description": "Salva um insight descoberto durante a conversa. Usar em tempo real quando descobrir informação de valor. Parâmetros: deal_id (UUID do deal), category (necessidade, orcamento, decisor, prazo, concorrente, objecao, perfil, interesse, contexto), content (resumo claro e útil para o time comercial), confidence (0.0 a 1.0), raw_message (mensagem original do usuário).",
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $fromAI('deal_id', 'UUID do deal') }}/insights",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"category\": \"{{ $fromAI('category', 'Categoria: necessidade, orcamento, decisor, prazo, concorrente, objecao, perfil, interesse ou contexto') }}\",\n  \"content\": \"{{ $fromAI('content', 'Resumo claro e útil para o time comercial') }}\",\n  \"confidence\": {{ $fromAI('confidence', 'Confiança de 0.0 a 1.0. 1.0 se pessoa disse explicitamente') }},\n  \"source\": \"ai_agent\",\n  \"raw_message\": \"{{ $fromAI('raw_message', 'Mensagem original do usuário que gerou o insight') }}\"\n}",
+        "options": {}
+      },
+      "name": "salvar_insight",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [1400, 1000]
+    },
+    {
+      "parameters": {
+        "description": "Salva múltiplos insights de uma vez. Usar após completar diagnóstico empresarial (13 perguntas). Parâmetros: deal_id (UUID do deal), insights_json (JSON array de insights, cada um com category, content, confidence e source).",
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $fromAI('deal_id', 'UUID do deal') }}/insights/batch",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI('insights_json', 'JSON object com array insights. Ex: {\"insights\": [{\"category\": \"perfil\", \"content\": \"Empresa com 25 funcionários\", \"confidence\": 1.0, \"source\": \"ai_agent\"}]}') }}",
+        "options": {}
+      },
+      "name": "salvar_insights_lote",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [400, 1200]
+    },
+    {
+      "parameters": {
+        "description": "Registra uma interação ou evento importante no histórico do deal. Usar nos momentos-chave: primeiro contato, interesse em produto, escalonamento para especialista, link enviado, diagnóstico completo. Parâmetros: deal_id (UUID do deal), type (whatsapp, note, call, email ou meeting), description (descrição da atividade).",
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $fromAI('deal_id', 'UUID do deal') }}/activities",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"{{ $fromAI('type', 'Tipo: whatsapp, note, call, email ou meeting. Default: whatsapp') }}\",\n  \"description\": \"{{ $fromAI('description', 'Descrição da atividade. Ex: Escalado para especialista - Planejamento Comercial') }}\"\n}",
+        "options": {}
+      },
+      "name": "registrar_atividade",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [650, 1200]
+    },
+    {
+      "parameters": {
+        "description": "Move o deal para outro estágio do pipeline. Usar quando: Novo Lead → Qualificação (primeira pergunta), Qualificação → Apresentação (apresenta produto), Apresentação → Proposta (escala especialista), Qualquer → Ganho (confirma compra), Qualquer → Perdido (desiste explicitamente). Parâmetros: deal_id (UUID do deal), pipeline_stage_id (UUID do estágio destino, obtido via listar_estagios).",
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $fromAI('deal_id', 'UUID do deal a mover') }}/stage?organization_id=00000000-0000-0000-0000-000000000001",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage_id\": \"{{ $fromAI('pipeline_stage_id', 'UUID do estágio destino, obtido via listar_estagios') }}\"\n}",
+        "options": {}
+      },
+      "name": "mover_estagio",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [900, 1200]
+    },
+    {
+      "parameters": {
+        "description": "Consulta dados de uma empresa pelo CNPJ na Receita Federal (via BrasilAPI). Retorna razão social, nome fantasia, segmento, cidade, estado, telefone, email. Usar quando o cliente informar um CNPJ. IMPORTANTE: após receber os dados, Rica DEVE confirmar com o cliente antes de salvar. Parâmetro: cnpj (apenas números ou formatado, ex: 12345678000190).",
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/cnpj/{{ $fromAI('cnpj', 'CNPJ da empresa, apenas números') }}",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {}
+      },
+      "name": "consultar_cnpj",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [1150, 1200]
+    }
+  ],
+  "connections": {}
+}

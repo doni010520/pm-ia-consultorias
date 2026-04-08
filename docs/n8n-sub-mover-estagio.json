@@ -1,0 +1,58 @@
+{
+  "name": "CRM - Mover Estágio",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "deal_id" },
+            { "name": "pipeline_stage_id" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-mover-estagio",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $json.deal_id }}/stage?organization_id=00000000-0000-0000-0000-000000000001",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage_id\": \"{{ $json.pipeline_stage_id }}\"\n}",
+        "options": { "timeout": 10000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "id": "http-mover-estagio",
+      "name": "Mover Estágio",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "sucesso", "value": true, "type": "boolean" },
+            { "id": "r2", "name": "mensagem", "value": "Deal movido de estágio", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 0],
+      "id": "return-mover-estagio",
+      "name": "Retorno"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Mover Estágio", "type": "main", "index": 0 }]] },
+    "Mover Estágio": { "main": [[{ "node": "Retorno", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

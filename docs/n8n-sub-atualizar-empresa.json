@@ -1,0 +1,76 @@
+{
+  "name": "CRM - Atualizar Empresa",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "company_id" },
+            { "name": "name" },
+            { "name": "cnpj" },
+            { "name": "segment" },
+            { "name": "city" },
+            { "name": "state" },
+            { "name": "phone" },
+            { "name": "email" },
+            { "name": "website" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-atualizar-empresa",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const d = item.json;\n  const body = {};\n  if (d.name) body.name = d.name;\n  if (d.cnpj) body.cnpj = d.cnpj;\n  if (d.segment) body.segment = d.segment;\n  if (d.city) body.city = d.city;\n  if (d.state) body.state = d.state;\n  if (d.phone) body.phone = d.phone;\n  if (d.email) body.email = d.email;\n  if (d.website) body.website = d.website;\n  return { json: { company_id: d.company_id, body: body } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "build-body-empresa",
+      "name": "Montar Body"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/companies/{{ $json.company_id }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "timeout": 10000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "id": "http-atualizar-empresa",
+      "name": "Atualizar Empresa",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "sucesso", "value": true, "type": "boolean" },
+            { "id": "r2", "name": "mensagem", "value": "Empresa atualizada", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [720, 0],
+      "id": "return-atualizar-empresa",
+      "name": "Retorno"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Montar Body", "type": "main", "index": 0 }]] },
+    "Montar Body": { "main": [[{ "node": "Atualizar Empresa", "type": "main", "index": 0 }]] },
+    "Atualizar Empresa": { "main": [[{ "node": "Retorno", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

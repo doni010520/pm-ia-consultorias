@@ -1,0 +1,57 @@
+{
+  "name": "CRM - Criar Deal",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "title" },
+            { "name": "contact_id" },
+            { "name": "company_id" },
+            { "name": "pipeline_id" },
+            { "name": "contact_name" },
+            { "name": "contact_phone" },
+            { "name": "temperature" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-criar-deal",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sucessocrm.benitechlab.com/api/crm/deals",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"organization_id\": \"00000000-0000-0000-0000-000000000001\",\n  \"title\": \"{{ $json.title }}\",\n  \"contact_id\": \"{{ $json.contact_id }}\",\n  \"company_id\": \"{{ $json.company_id }}\",\n  \"pipeline_id\": \"{{ $json.pipeline_id }}\",\n  \"contact_name\": \"{{ $json.contact_name }}\",\n  \"contact_phone\": \"{{ $json.contact_phone }}\",\n  \"source\": \"whatsapp\",\n  \"temperature\": \"{{ $json.temperature || 'warm' }}\"\n}",
+        "options": { "timeout": 15000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "id": "http-criar-deal",
+      "name": "Criar Deal no CRM",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json;\n  if (data.error || data.statusCode >= 400) {\n    return { json: { sucesso: false, mensagem: 'Erro ao criar deal' } };\n  }\n  return {\n    json: {\n      sucesso: true,\n      deal_id: data.deal ? data.deal.id : null,\n      deal_title: data.deal ? data.deal.title : null,\n      mensagem: `Deal criado: ${data.deal ? data.deal.title : 'OK'}`\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "format-response-deal",
+      "name": "Formatar Resposta"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Criar Deal no CRM", "type": "main", "index": 0 }]] },
+    "Criar Deal no CRM": { "main": [[{ "node": "Formatar Resposta", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

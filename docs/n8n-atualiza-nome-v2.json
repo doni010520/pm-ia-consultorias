@@ -1,0 +1,217 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "telefone"
+            },
+            {
+              "name": "nome"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "341c914b-f1c7-4a4a-9ffa-36f5bcf757bd",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "LeadsAlexy",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telefone",
+              "condition": "eq",
+              "keyValue": "={{ $json.telefone }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "nome",
+              "fieldValue": "={{ $json.nome }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "eea7108b-ac09-431e-9dd2-554b9caf2cdf",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CXaiuN94AujJKF5r",
+          "name": "RICA"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "324f5707-d4ad-45a5-8354-34e33dd7ce3a",
+              "name": "response",
+              "value": "sucesso",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        688,
+        0
+      ],
+      "id": "9e4d71e8-5f94-44b1-a5b8-637a8028a565",
+      "name": "Edit Fields"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/by-phone/{{ $('When Executed by Another Workflow').item.json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        220
+      ],
+      "id": "crm-buscar-contato-03",
+      "name": "CRM Buscar Contato",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "crm-cond-003",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        464,
+        220
+      ],
+      "id": "crm-if-exists-03",
+      "name": "CRM Contato Existe?"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/{{ $json.contact.id }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $('When Executed by Another Workflow').item.json.nome }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        688,
+        220
+      ],
+      "id": "crm-atualizar-nome-03",
+      "name": "CRM Atualizar Nome Contato",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CRM Buscar Contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Buscar Contato": {
+      "main": [
+        [
+          {
+            "node": "CRM Contato Existe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Contato Existe?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "CRM Atualizar Nome Contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6e58520b716280a1928c28da49791b952407e20ffe89f4b983741f7630c375f4"
+  }
+}

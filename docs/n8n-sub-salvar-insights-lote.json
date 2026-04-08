@@ -1,0 +1,69 @@
+{
+  "name": "CRM - Salvar Insights Lote",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "deal_id" },
+            { "name": "insights_json" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "trigger-insights-lote",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  let insights = item.json.insights_json;\n  // Se veio como string, faz parse\n  if (typeof insights === 'string') {\n    try { insights = JSON.parse(insights); } catch(e) { insights = { insights: [] }; }\n  }\n  return { json: { deal_id: item.json.deal_id, body: insights } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "parse-insights",
+      "name": "Parse Insights"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $json.deal_id }}/insights/batch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "timeout": 15000 }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "id": "http-insights-lote",
+      "name": "Salvar Insights Lote",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "sucesso", "value": true, "type": "boolean" },
+            { "id": "r2", "name": "mensagem", "value": "Insights salvos em lote", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [720, 0],
+      "id": "return-insights-lote",
+      "name": "Retorno"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Parse Insights", "type": "main", "index": 0 }]] },
+    "Parse Insights": { "main": [[{ "node": "Salvar Insights Lote", "type": "main", "index": 0 }]] },
+    "Salvar Insights Lote": { "main": [[{ "node": "Retorno", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true }
+}

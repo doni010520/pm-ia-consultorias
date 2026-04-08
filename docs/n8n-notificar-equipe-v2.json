@@ -1,0 +1,501 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nome"
+            },
+            {
+              "name": "telefone"
+            },
+            {
+              "name": "produto"
+            },
+            {
+              "name": "mensagem"
+            },
+            {
+              "name": "token"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1024,
+        -64
+      ],
+      "id": "211e1ee7-17be-45e9-a0fc-453efa408423",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega os dados do webhook\nconst items = $input.all();\n\nreturn items.map(item => {\n  // Pega o telefone do lead\n  const telefone = item.json.telefone || '';\n  \n  // Remove tudo que não for número\n  const apenasNumeros = telefone.replace(/\\D/g, '');\n  \n  let ddd = null;\n  let numeroLimpo = apenasNumeros;\n  \n  // Verifica se começa com 55 (código do Brasil)\n  if (apenasNumeros.startsWith('55')) {\n    // Remove o 55 e pega os próximos 2 dígitos como DDD\n    const semCodigoPais = apenasNumeros.substring(2);\n    \n    // Extrai o DDD (2 primeiros dígitos após o 55)\n    if (semCodigoPais.length >= 2) {\n      ddd = parseInt(semCodigoPais.substring(0, 2));\n      numeroLimpo = semCodigoPais;\n    }\n  } else if (apenasNumeros.length >= 10) {\n    // Se não tem código do país, pega direto os 2 primeiros\n    ddd = parseInt(apenasNumeros.substring(0, 2));\n  }\n  \n  // Retorna os dados originais + DDD extraído\n  return {\n    json: {\n      ...item.json,\n      telefone_original: telefone,\n      telefone_limpo: numeroLimpo,\n      ddd: ddd,\n      ddd_valido: ddd !== null && ddd >= 11 && ddd <= 99,\n      tem_codigo_pais: apenasNumeros.startsWith('55')\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        -64
+      ],
+      "id": "1bf30982-934c-4753-b70b-ad062f89a40f",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega os dados do passo anterior\nconst items = $input.all();\n\nreturn items.map(item => {\n  const ddd = item.json.ddd;\n  \n  // Mapas de DDD por região\n  const regioes = {\n    norte: [68, 96, 92, 97, 91, 93, 94, 69, 95, 63],\n    nordeste: [82, 71, 73, 74, 75, 77, 85, 88, 98, 99, 83, 81, 87, 86, 89, 79, 84],\n    sudeste: [27, 28, 31, 32, 33, 34, 35, 37, 38, 21, 22, 24, 11, 12, 13, 14, 15, 16, 17, 18, 19],\n    sul: [41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55],\n    centro_oeste: [62, 64, 65, 66, 67, 61]\n  };\n  \n  let regiao = 'nao_identificada';\n  let estado = 'nao_identificado';\n  \n  // Identifica a região\n  for (const [key, values] of Object.entries(regioes)) {\n    if (values.includes(ddd)) {\n      regiao = key;\n      break;\n    }\n  }\n  \n  // Identifica subregião específica para direcionamento\n  let subregiao = regiao;\n  \n  // São Paulo (11-19)\n  if ([11, 12, 13, 14, 15, 16, 17, 18, 19].includes(ddd)) {\n    subregiao = 'sao_paulo';\n    estado = 'SP';\n  }\n  // Rio de Janeiro (21, 22, 24)\n  else if ([21, 22, 24].includes(ddd)) {\n    subregiao = 'rio_de_janeiro';\n    estado = 'RJ';\n  }\n  // Demais estados do Sudeste\n  else if ([27, 28].includes(ddd)) {\n    subregiao = 'sudeste_outros';\n    estado = 'ES';\n  }\n  else if ([31, 32, 33, 34, 35, 37, 38].includes(ddd)) {\n    subregiao = 'sudeste_outros';\n    estado = 'MG';\n  }\n  // Bahia\n  else if ([71, 73, 74, 75, 77].includes(ddd)) {\n    estado = 'BA';\n  }\n  // Pernambuco\n  else if ([81, 87].includes(ddd)) {\n    estado = 'PE';\n  }\n  \n  // Retorna todos os dados + região identificada\n  return {\n    json: {\n      ...item.json,\n      regiao: regiao,\n      subregiao: subregiao,\n      estado: estado,\n      info_regional: {\n        ddd: ddd,\n        regiao: regiao,\n        subregiao: subregiao,\n        estado: estado\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        -64
+      ],
+      "id": "60f9f28d-c456-4f38-b5cb-ab87fd064620",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega os dados do passo anterior\nconst items = $input.all();\n\nreturn items.map(item => {\n  const produto = (item.json.produto || '').toLowerCase();\n  const regiao = item.json.regiao;\n  const subregiao = item.json.subregiao;\n  const ddd = item.json.ddd;\n  \n  let executivo = null;\n  let email_executivo = null;\n  let telefone_executivo = null;\n  let motivo_direcionamento = '';\n  \n  // ====== GPS (não padaria) ======\n  if (produto.includes('gps') && !produto.includes('padaria')) {\n    executivo = 'André Augusto';\n    email_executivo = 'andre@sucessonoresultado.com.br';\n    telefone_executivo = '11958430345';\n    motivo_direcionamento = 'Produto GPS';\n  }\n  \n  // ====== PADARIA ou ALEXY ======\n  else if (produto.includes('padaria') || produto.includes('alexy')) {\n    \n    // Sudeste (exceto RJ) -> Alex\n    if (subregiao === 'sao_paulo' || subregiao === 'sudeste_outros') {\n      executivo = 'Alex Araújo';\n      email_executivo = 'alex@sucessonoresultado.com.br';\n      telefone_executivo = '13996871134';\n      motivo_direcionamento = 'Padaria/Alexy - Região Sudeste';\n    }\n    // Norte e Nordeste -> Gabriela\n    else if (regiao === 'norte' || regiao === 'nordeste') {\n      executivo = 'Gabriela Câmara';\n      email_executivo = 'gabriela@sucessonoresultado.com.br';\n      telefone_executivo = '8199092839';\n      motivo_direcionamento = 'Padaria/Alexy - Região Norte/Nordeste';\n    }\n    // Rio de Janeiro e Sul -> Lúcia\n    else if (subregiao === 'rio_de_janeiro' || regiao === 'sul') {\n      executivo = 'Lúcia Carcerere';\n      email_executivo = 'lucia@sucessonoresultado.com.br';\n      telefone_executivo = '21981807478';\n      motivo_direcionamento = 'Padaria/Alexy - Região RJ/Sul';\n    }\n    // Centro-Oeste ou não identificado -> Carolina (nacional)\n    else {\n      executivo = 'Carolina Câmara';\n      email_executivo = 'carolina@sucessonoresultado.com.br';\n      telefone_executivo = '11960757304';\n      motivo_direcionamento = 'Padaria/Alexy - Cobertura Nacional/Centro-Oeste';\n    }\n  }\n  \n  // ====== CAFETERIA ======\n  else if (produto.includes('cafe') || produto.includes('cafeteria')) {\n    executivo = 'Ana Clara';\n    email_executivo = 'anaclaramedeiros@hotmail.com';\n    telefone_executivo = '8196747235';\n    motivo_direcionamento = 'Segmento Cafeteria';\n  }\n  \n  // ====== SUPERMERCADO ======\n  else if (produto.includes('supermercado') || produto.includes('mercado')) {\n    executivo = 'Irelene Guerreiro';\n    email_executivo = 'ireleneguerreiro76@hotmail.com';\n    telefone_executivo = '19996065250';\n    motivo_direcionamento = 'Segmento Supermercado';\n  }\n  \n  // ====== OUTROS PRODUTOS (exceto padaria) ======\n  else {\n    // Alterna entre Maria Helena e Helen Monte\n    // Usa o timestamp para alternar (par/ímpar)\n    const segundoAtual = new Date().getSeconds();\n    \n    if (segundoAtual % 2 === 0) {\n      executivo = 'Maria Helena';\n      email_executivo = 'maria.helena@sucessonoresultado.com.br';\n      telefone_executivo = '8199736503';\n    } else {\n      executivo = 'Helen Monte';\n      email_executivo = 'helen@sucessonoresultado.com.br';\n      telefone_executivo = '8194969669';\n    }\n    motivo_direcionamento = 'Outros segmentos (distribuição alternada)';\n  }\n  \n  // Retorna todos os dados + executivo selecionado\n  return {\n    json: {\n      ...item.json,\n      direcionamento: {\n        executivo: executivo,\n        email_executivo: email_executivo,\n        telefone_executivo: telefone_executivo,\n        motivo: motivo_direcionamento\n      },\n      resumo_lead: {\n        nome: item.json.nome,\n        empresa: item.json.empresa,\n        produto: item.json.produto,\n        ddd: ddd,\n        regiao: regiao,\n        executivo_responsavel: executivo\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        -64
+      ],
+      "id": "16ddb345-c235-4a46-8847-8538a9baf31b",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara JSON para WhatsApp com mensagem personalizada\nconst items = $input.all();\n\nreturn items.map(item => {\n  const lead = item.json;\n  const dir = lead.direcionamento;\n  \n  // Verifica se os campos necessários existem\n  if (!dir || !dir.telefone_executivo) {\n    throw new Error('Dados de direcionamento não encontrados');\n  }\n  \n  // Formata o telefone para WhatsApp\n  let telefoneWhats = '';\n  \n  if (lead.telefone_limpo) {\n    telefoneWhats = lead.telefone_limpo.startsWith('55') \n      ? lead.telefone_limpo \n      : '55' + lead.telefone_limpo;\n  } else if (lead.telefone) {\n    const telefoneLimpo = lead.telefone.replace(/\\D/g, '');\n    telefoneWhats = telefoneLimpo.startsWith('55') \n      ? telefoneLimpo \n      : '55' + telefoneLimpo;\n  }\n  \n  // Pega o primeiro nome do executivo\n  const primeiroNome = dir.executivo.split(' ')[0];\n  \n  // Monta a mensagem personalizada com o nome do executivo\n  const mensagemTexto = `🔥 *NOVO LEAD QUENTINHO!*\n\nOi ${primeiroNome}! 👋 Aqui é a Rica 🤖\n\n━━━━━━━━━━━━━━\n📋 *DADOS DO CLIENTE*\n━━━━━━━━━━━━━━\n\n👤 *Nome:* ${lead.nome || 'Não informado'}\n🏢 *Empresa:* ${lead.empresa || 'Não informada'}\n📱 *Tel:* ${lead.telefone || 'Não informado'}\n📧 *Email:* ${lead.email || 'Não informado'}\n🎯 *Produto:* ${lead.produto || 'Não informado'}\n📍 *Local:* ${lead.estado || 'BR'} (DDD ${lead.ddd || 'XX'})\n\n━━━━━━━━━━━━━━\n💬 *MENSAGEM DO LEAD*\n━━━━━━━━━━━━━━\n_\"${lead.mensagem || 'Cliente solicitou contato'}\"_\n\n🔥 *${primeiroNome}, esse lead está fresquinho!*\nQuanto mais rápido você fizer contato, maior a chance de fechar! 💪\n\n⚡ *Clique para chamar no WhatsApp:*\nwa.me/${telefoneWhats}\n\n⏰ _Recebido: ${new Date().toLocaleString('pt-BR')}_\n\nBoa venda!\n🤖 _Rica - Assistente de Vendas_`;\n  \n  // Limpa o telefone do executivo\n  const telefoneExecutivoLimpo = dir.telefone_executivo.replace(/\\D/g, '');\n  \n  // Cria o objeto JSON\n  const whatsappJSON = {\n    to: \"55\" + telefoneExecutivoLimpo,\n    text: mensagemTexto\n  };\n  \n  // Versão ainda mais curta e direta\n  const mensagemCurta = `🔥 *NOVO LEAD, ${primeiroNome}!*\n\n*${lead.empresa || 'Empresa'}*\n${lead.nome || 'Cliente'}\n📱 ${lead.telefone}\n\n*Quer:* ${lead.produto}\n\n💬 _\"${lead.mensagem || 'Solicita contato'}\"_\n\n⚡ *Corre que é seu!*\nwa.me/${telefoneWhats}\n\n🤖 Rica`;\n  \n  // ====== MENSAGEM PARA MARIA HELENA (notificação de gestão) ======\n  const mensagemMariaHelena = `📊 *LEAD DISTRIBUÍDO*\n\n👤 *Lead:* ${lead.nome || 'Não informado'}\n🎯 *Produto:* ${lead.produto || 'Não informado'}\n📍 *Local:* ${lead.estado || 'BR'} (DDD ${lead.ddd || 'XX'})\n\n➡️ *Direcionado para:* ${dir.executivo}\n📋 *Motivo:* ${dir.motivo}\n\n⏰ ${new Date().toLocaleString('pt-BR')}`;\n  \n  const whatsappMariaHelena = {\n    to: \"558199736503\",\n    text: mensagemMariaHelena\n  };\n  \n  return {\n    json: {\n      ...item.json,\n      whatsapp_simples: whatsappJSON,\n      whatsapp_mensagem_curta: mensagemCurta,\n      whatsapp_raw_message: mensagemTexto,\n      whatsapp_maria_helena: whatsappMariaHelena,\n      numero_executivo_formatado: \"55\" + telefoneExecutivoLimpo,\n      numero_cliente_formatado: telefoneWhats,\n      nome_executivo: primeiroNome\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        -64
+      ],
+      "id": "b186f9d5-1403-4fd8-82b0-ddfa28dea5d9",
+      "name": "Code3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://benitechlab.uazapi.com/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $('When Executed by Another Workflow').item.json.token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.whatsapp_simples.to }}\",\n  \"text\": {{ $json.whatsapp_simples.text.toJsonString() }},\n  \"delay\": \"3000\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        -160
+      ],
+      "id": "0cba43b8-5c4c-4e19-b03f-c4a15548f8ed",
+      "name": "Enviar WhatsApp Executivo",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://benitechlab.uazapi.com/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $('When Executed by Another Workflow').item.json.token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Code3').item.json.whatsapp_maria_helena.to }}\",\n  \"text\": {{ $('Code3').item.json.whatsapp_maria_helena.text.toJsonString() }},\n  \"delay\": \"3000\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        48
+      ],
+      "id": "60de380b-cac1-4da5-9c39-f813cd697fb4",
+      "name": "Notificar Maria Helena",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Code3').item.json.direcionamento.email_executivo }}",
+        "subject": "=🔥 Novo Lead - {{ $('Code3').item.json.produto }} - ",
+        "message": "=<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px 10px 0 0;\">\n    <h2 style=\"color: white; margin: 0;\">🤖 Rica - Assistente de Vendas</h2>\n  </div>\n  \n  <div style=\"padding: 20px; background: #f8f9fa;\">\n    <p style=\"font-size: 16px;\">Oi <strong>{{ $('Code3').item.json.direcionamento.executivo }}</strong>!</p>\n    \n    <p>Aqui é a Rica 🤖 Acabei de receber um <strong style=\"color: #d9534f;\">lead quentíssimo</strong> para você!</p>\n    \n    <div style=\"background: white; border-left: 4px solid #5cb85c; padding: 20px; margin: 20px 0; border-radius: 5px;\">\n      <h3 style=\"color: #333; margin-top: 0;\">⚡ NOVO LEAD - AÇÃO IMEDIATA</h3>\n      \n      <table style=\"width: 100%; border-collapse: collapse;\">\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>👤 Nome:</strong></td>\n          <td style=\"padding: 8px 0;\">{{ $('Code3').item.json.nome }}</td>\n        </tr>\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>📱 Telefone:</strong></td>\n          <td style=\"padding: 8px 0;\"><a href=\"tel:{{ $('Code3').item.json.telefone_limpo }}\">{{ $('Code3').item.json.telefone }}</a></td>\n        </tr>\n        <tr style=\"background: #f5f5f5;\">\n        <tr>\n          <td style=\"padding: 8px 0;\"><strong>🎯 Produto:</strong></td>\n          <td style=\"padding: 8px 0;\"><span style=\"background: #ffc107; padding: 2px 8px; border-radius: 3px;\">{{ $('Code3').item.json.produto }}</span></td>\n        </tr>\n        <tr style=\"background: #f5f5f5;\">\n          <td style=\"padding: 8px 0;\"><strong>📍 Localização:</strong></td>\n          <td style=\"padding: 8px 0;\">{{ $('Code3').item.json.estado }} - {{ $('Code3').item.json.regiao }} (DDD {{ $('Code3').item.json.ddd }})</td>\n        </tr>\n      </table>\n      \n      <div style=\"background: #e8f4fd; padding: 15px; margin-top: 15px; border-radius: 5px;\">\n        <strong>💬 Resumo do Lead:</strong><br>\n        <em style=\"color: #555;\">\"{{ $('Code3').item.json.mensagem || 'Sem mensagem adicional' }}\"</em>\n      </div>\n    </div>\n    \n    <div style=\"background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 20px 0;\">\n      <p style=\"margin: 0; color: #856404;\">\n        <strong>🔥 {{ $('Code3').item.json.direcionamento.executivo }}</strong>, esse lead está fresquinho!<br>\n        Quanto mais rápido você entrar em contato, maior a chance de conversão. Boa venda! 💪\n      </p>\n    </div>\n    \n    <hr style=\"border: none; border-top: 1px solid #dee2e6; margin: 20px 0;\">\n    \n    <p style=\"color: #6c757d; font-size: 12px; margin: 5px 0;\">\n      <strong>Abraços digitais,</strong><br>\n      Rica - Assistente de Vendas 🤖<br><br>\n      \n      <em>Direcionamento: {{ $('Code3').item.json.direcionamento.motivo }}<br>\n      Recebido em: {{ $now.format('dd/MM/yyyy HH:mm:ss') }}</em>\n    </p>\n  </div>\n</div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        320,
+        -160
+      ],
+      "id": "74df52c5-06ef-4a54-955c-4749d530ef49",
+      "name": "Send a message",
+      "webhookId": "c5eccdc9-a9a5-4d6d-abb0-722618790796",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "q6xUIumBPFd4D2wF",
+          "name": "RICA"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "LeadsAlexy",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telefone",
+              "condition": "eq",
+              "keyValue": "={{ $('When Executed by Another Workflow').item.json.telefone }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "Follow-up",
+              "fieldValue": "transferido_para_executivo"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        544,
+        -160
+      ],
+      "id": "2f786789-e2a6-4211-85b2-0b3892f6773e",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CXaiuN94AujJKF5r",
+          "name": "RICA"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "482c3b59-f4ce-4081-97b4-a28cf973cbd9",
+              "name": "response",
+              "value": "sucesso",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        -160
+      ],
+      "id": "bbea5e63-f28f-425a-8750-b9f8117a8d6c",
+      "name": "Edit Fields"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/contacts/by-phone/{{ $('When Executed by Another Workflow').item.json.telefone }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        280
+      ],
+      "id": "crm-buscar-contato-01",
+      "name": "CRM Buscar Contato",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "crm-cond-001",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        280
+      ],
+      "id": "crm-if-exists-01",
+      "name": "CRM Contato Existe?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai deal_id do contato encontrado\nconst items = $input.all();\n\nreturn items.map(item => {\n  const contact = item.json.contact || {};\n  const deals = contact.deals || [];\n  \n  // Pega o deal mais recente com status open\n  const openDeals = deals.filter(d => d.status === 'open');\n  const deal = openDeals.length > 0 ? openDeals[0] : (deals.length > 0 ? deals[0] : null);\n  \n  return {\n    json: {\n      contact_id: contact.id || null,\n      deal_id: deal ? deal.id : null,\n      deal_title: deal ? deal.title : null,\n      pipeline_name: deal ? deal.pipeline_name : null,\n      has_deal: !!deal,\n      produto: $('When Executed by Another Workflow').item.json.produto,\n      mensagem: $('When Executed by Another Workflow').item.json.mensagem,\n      nome: $('When Executed by Another Workflow').item.json.nome,\n      executivo: $('Code3').item.json.direcionamento ? $('Code3').item.json.direcionamento.executivo : 'Equipe'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        240
+      ],
+      "id": "crm-extract-deal-01",
+      "name": "CRM Extrair Deal"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $json.deal_id }}/activities",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"whatsapp\",\n  \"description\": \"Escalado para especialista ({{ $json.executivo }}) - {{ $json.produto }}. {{ $json.mensagem }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        200
+      ],
+      "id": "crm-registrar-atividade-01",
+      "name": "CRM Registrar Atividade",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sucessocrm.benitechlab.com/api/crm/deals/{{ $('CRM Extrair Deal').item.json.deal_id }}?organization_id=00000000-0000-0000-0000-000000000001",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"temperature\": \"hot\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        360
+      ],
+      "id": "crm-atualizar-temp-01",
+      "name": "CRM Temperatura Hot",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp Executivo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notificar Maria Helena",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CRM Buscar Contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp Executivo": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Buscar Contato": {
+      "main": [
+        [
+          {
+            "node": "CRM Contato Existe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Contato Existe?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "CRM Extrair Deal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Extrair Deal": {
+      "main": [
+        [
+          {
+            "node": "CRM Registrar Atividade",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CRM Temperatura Hot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6e58520b716280a1928c28da49791b952407e20ffe89f4b983741f7630c375f4"
+  }
+}
