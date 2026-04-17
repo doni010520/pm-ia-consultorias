@@ -1487,7 +1487,7 @@ router.post('/register-lead', async (req, res, next) => {
     const {
       contact_name, contact_phone, contact_email,
       company_name, company_cnpj, company_segment, company_city, company_state,
-      pipeline_name, deal_title, source = 'whatsapp', temperature = 'warm', value,
+      pipeline_name, pipeline_stage_name, deal_title, source = 'whatsapp', temperature = 'warm', value,
     } = req.body;
 
     if (!contact_name && !contact_phone) {
@@ -1562,9 +1562,18 @@ router.post('/register-lead', async (req, res, next) => {
       pipelineId = pResult.rows[0]?.id || null;
     }
 
-    // 4. Get first stage of the pipeline
+    // 4. Get stage of the pipeline (by name if provided, otherwise first)
     let stageId = null;
-    if (pipelineId) {
+    if (pipelineId && pipeline_stage_name) {
+      const sResult = await query(
+        `SELECT id FROM pipeline_stages
+         WHERE organization_id = $1 AND pipeline_id = $2 AND name ILIKE $3
+         ORDER BY position LIMIT 1`,
+        [orgId, pipelineId, pipeline_stage_name]
+      );
+      stageId = sResult.rows[0]?.id || null;
+    }
+    if (!stageId && pipelineId) {
       const sResult = await query(
         `SELECT id FROM pipeline_stages
          WHERE organization_id = $1 AND pipeline_id = $2 AND is_won = false AND is_lost = false
@@ -1609,6 +1618,300 @@ router.post('/register-lead', async (req, res, next) => {
       contact: contactData.rows[0] || null,
       company: companyData.rows[0] || null,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// FOLLOW-UP ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/crm/deals/followup-candidates
+ * Retorna deals elegíveis para follow-up baseado em thresholds.
+ *
+ * Query params:
+ *   - max_followups (default: 3) — nao envia mais que isso
+ *   - business_hours_only (default: true) — filtra por horario comercial (9h-18h seg-sex)
+ *
+ * Regras de cadência (horas sem resposta do cliente):
+ *   - followup_count = 0  → threshold = 2h
+ *   - followup_count = 1  → threshold = 24h
+ *   - followup_count = 2  → threshold = 72h (3 dias)
+ *   - followup_count = 3  → encerra (marca lost)
+ */
+router.get('/deals/followup-candidates', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const maxFollowups = parseInt(req.query.max_followups) || 3;
+
+    // Busca deals abertos elegiveis
+    const result = await query(
+      `SELECT
+        d.id, d.title, d.pipeline_id, d.pipeline_stage_id,
+        d.contact_id, d.contact_name, d.contact_phone,
+        d.followup_count, d.last_followup_at, d.last_client_message_at,
+        d.temperature, d.status, d.created_at, d.stage_entered_at,
+        p.name as pipeline_name,
+        ps.name as stage_name,
+        c.name as contact_full_name, c.email as contact_email,
+        co.name as company_name,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 AS hours_since_activity,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 AS hours_since_followup
+       FROM deals d
+       LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       LEFT JOIN companies co ON co.id = d.company_id
+       WHERE d.organization_id = $1
+         AND d.status = 'open'
+         AND COALESCE(d.followup_count, 0) < $2
+         AND (
+           (COALESCE(d.followup_count, 0) = 0 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 >= 2)
+           OR
+           (COALESCE(d.followup_count, 0) = 1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 24)
+           OR
+           (COALESCE(d.followup_count, 0) = 2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 72)
+         )
+       ORDER BY d.followup_count ASC, hours_since_activity DESC
+       LIMIT 50`,
+      [orgId, maxFollowups]
+    );
+
+    // Para cada deal, buscar últimos 5 insights (contexto)
+    const dealsWithContext = await Promise.all(
+      result.rows.map(async (deal) => {
+        const insights = await query(
+          `SELECT category, content, created_at
+           FROM deal_insights
+           WHERE deal_id = $1
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [deal.id]
+        );
+        return { ...deal, recent_insights: insights.rows };
+      })
+    );
+
+    res.json({ deals: dealsWithContext, total: dealsWithContext.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/crm/deals/:id/followup
+ * Registra que um follow-up foi enviado. Incrementa counter e atualiza timestamp.
+ */
+router.patch('/deals/:id/followup', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { message_sent } = req.body;
+
+    // Incrementa followup_count e atualiza last_followup_at
+    const result = await query(
+      `UPDATE deals
+       SET followup_count = COALESCE(followup_count, 0) + 1,
+           last_followup_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING *`,
+      [id, orgId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Deal nao encontrado' } });
+    }
+
+    // Registra como atividade
+    if (message_sent) {
+      await query(
+        `INSERT INTO deal_activities (deal_id, organization_id, type, description)
+         VALUES ($1, $2, 'followup', $3)`,
+        [id, orgId, `Follow-up #${result.rows[0].followup_count} enviado: ${String(message_sent).slice(0, 500)}`]
+      );
+    }
+
+    res.json({ deal: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/client-message-by-phone
+ * Dispara quando qualquer mensagem do cliente chega. Reseta o counter de follow-ups
+ * de TODOS os deals abertos que o contato tem (em qualquer funil).
+ *
+ * Body: { phone: "5511999999999" }
+ * Seguro chamar mesmo se o contato nao existe no CRM (retorna updated: 0).
+ */
+router.post('/client-message-by-phone', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: { message: 'phone obrigatorio' } });
+    }
+
+    // Normaliza telefone - remove nao-digitos
+    const cleanPhone = String(phone).replace(/\D/g, '');
+
+    const result = await query(
+      `UPDATE deals
+       SET last_client_message_at = NOW(),
+           followup_count = 0,
+           updated_at = NOW()
+       WHERE organization_id = $1
+         AND status = 'open'
+         AND contact_id IN (
+           SELECT id FROM contacts
+           WHERE organization_id = $1
+             AND REGEXP_REPLACE(phone, '\\D', '', 'g') = $2
+         )
+       RETURNING id`,
+      [orgId, cleanPhone]
+    );
+
+    res.json({ updated: result.rows.length, deal_ids: result.rows.map(r => r.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/client-message
+ * Registra que o cliente enviou uma mensagem. Reseta o counter de follow-ups
+ * e atualiza last_client_message_at.
+ */
+router.post('/deals/:id/client-message', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+
+    const result = await query(
+      `UPDATE deals
+       SET last_client_message_at = NOW(),
+           followup_count = 0,
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING id, followup_count, last_client_message_at`,
+      [id, orgId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Deal nao encontrado' } });
+    }
+
+    res.json({ deal: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/close-inactive
+ * Fecha em massa todos os deals com followup_count >= 3 e ultimo followup ha mais de N dias.
+ * Query param: days (default 7)
+ */
+router.post('/deals/close-inactive', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const days = parseInt(req.query.days) || 7;
+
+    const candidates = await query(
+      `SELECT d.id, d.pipeline_id
+       FROM deals d
+       WHERE d.organization_id = $1
+         AND d.status = 'open'
+         AND COALESCE(d.followup_count, 0) >= 3
+         AND d.last_followup_at IS NOT NULL
+         AND EXTRACT(EPOCH FROM (NOW() - d.last_followup_at)) / 86400 >= $2`,
+      [orgId, days]
+    );
+
+    let closed = 0;
+    for (const deal of candidates.rows) {
+      const lostStage = await query(
+        `SELECT id FROM pipeline_stages
+         WHERE organization_id = $1 AND pipeline_id = $2 AND is_lost = true
+         ORDER BY position DESC LIMIT 1`,
+        [orgId, deal.pipeline_id]
+      );
+
+      await query(
+        `UPDATE deals
+         SET status = 'lost',
+             lost_reason = 'sem_resposta_followup',
+             pipeline_stage_id = COALESCE($3, pipeline_stage_id),
+             closed_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $1 AND organization_id = $2`,
+        [deal.id, orgId, lostStage.rows[0]?.id || null]
+      );
+
+      await query(
+        `INSERT INTO deal_activities (deal_id, organization_id, type, description)
+         VALUES ($1, $2, 'system', 'Deal encerrado automaticamente - sem resposta apos 3 follow-ups')`,
+        [deal.id, orgId]
+      );
+      closed++;
+    }
+
+    res.json({ closed, total_candidates: candidates.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/crm/deals/:id/close-no-response
+ * Marca deal como perdido por ausencia de resposta apos X follow-ups.
+ */
+router.patch('/deals/:id/close-no-response', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+
+    // Buscar o estagio "Perdido" do pipeline do deal
+    const dealInfo = await query(
+      'SELECT pipeline_id FROM deals WHERE id = $1 AND organization_id = $2',
+      [id, orgId]
+    );
+
+    if (dealInfo.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'Deal nao encontrado' } });
+    }
+
+    const lostStage = await query(
+      `SELECT id FROM pipeline_stages
+       WHERE organization_id = $1 AND pipeline_id = $2 AND is_lost = true
+       ORDER BY position DESC LIMIT 1`,
+      [orgId, dealInfo.rows[0].pipeline_id]
+    );
+
+    const result = await query(
+      `UPDATE deals
+       SET status = 'lost',
+           lost_reason = 'sem_resposta_followup',
+           pipeline_stage_id = COALESCE($3, pipeline_stage_id),
+           closed_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING *`,
+      [id, orgId, lostStage.rows[0]?.id || null]
+    );
+
+    await query(
+      `INSERT INTO deal_activities (deal_id, organization_id, type, description)
+       VALUES ($1, $2, 'system', 'Deal encerrado automaticamente - sem resposta apos follow-ups')`,
+      [id, orgId]
+    );
+
+    res.json({ deal: result.rows[0] });
   } catch (error) {
     next(error);
   }
