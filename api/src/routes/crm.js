@@ -1741,6 +1741,64 @@ router.patch('/deals/:id/followup', async (req, res, next) => {
 });
 
 /**
+ * POST /api/crm/deals/assign-owner-by-phone
+ * Atribui um executivo (owner) a TODOS os deals abertos de um contato pelo telefone.
+ *
+ * Usado pelo workflow notificar_equipe quando um lead é transferido.
+ * Resolve o user_id pelo email do executivo.
+ *
+ * Body: { phone: "5511...", executivo_email: "andre@..." }
+ * Retorna: { updated, deal_ids, owner_id, owner_name }
+ */
+router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { phone, executivo_email } = req.body;
+
+    if (!phone || !executivo_email) {
+      return res.status(400).json({ error: { message: 'phone e executivo_email obrigatorios' } });
+    }
+
+    // 1. Resolve user_id pelo email
+    const userResult = await query(
+      'SELECT id, name FROM users WHERE organization_id = $1 AND email = $2 AND is_active = true LIMIT 1',
+      [orgId, executivo_email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        error: { message: `executivo nao encontrado: ${executivo_email}` }
+      });
+    }
+
+    const owner = userResult.rows[0];
+    const cleanPhone = String(phone).replace(/\D/g, '');
+
+    // 2. Atualiza owner_id de todos os deals abertos do contato
+    const result = await query(
+      `UPDATE deals d
+       SET owner_id = $3, updated_at = NOW()
+       FROM contacts c
+       WHERE d.contact_id = c.id
+         AND d.organization_id = $1
+         AND d.status = 'open'
+         AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
+       RETURNING d.id`,
+      [orgId, cleanPhone, owner.id]
+    );
+
+    res.json({
+      updated: result.rows.length,
+      deal_ids: result.rows.map(r => r.id),
+      owner_id: owner.id,
+      owner_name: owner.name,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /api/crm/client-message-by-phone
  * Dispara quando qualquer mensagem do cliente chega. Reseta o counter de follow-ups
  * de TODOS os deals abertos que o contato tem (em qualquer funil).
