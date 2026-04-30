@@ -1722,6 +1722,21 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
               </div>
             </section>
 
+            {/* Responsavel */}
+            <section>
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Responsável</h3>
+              {deal.owner_name ? (
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <div className="h-7 w-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600 flex-shrink-0">
+                    {deal.owner_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                  </div>
+                  <span className="font-medium">{deal.owner_name}</span>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Nenhum executivo atribuído</p>
+              )}
+            </section>
+
             {/* Insights */}
             <section>
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Insights</h3>
