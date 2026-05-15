@@ -1487,7 +1487,8 @@ router.post('/register-lead', async (req, res, next) => {
     const {
       contact_name, contact_phone, contact_email,
       company_name, company_cnpj, company_segment, company_city, company_state,
-      pipeline_name, pipeline_stage_name, deal_title, source = 'whatsapp', temperature = 'warm', value,
+      pipeline_name, pipeline_stage_name, deal_title, source = 'whatsapp', source_detail = null,
+      temperature = 'warm', value,
     } = req.body;
 
     if (!contact_name && !contact_phone) {
@@ -1587,14 +1588,14 @@ router.post('/register-lead', async (req, res, next) => {
     const dealResult = await query(
       `INSERT INTO deals (organization_id, pipeline_id, pipeline_stage_id, title,
         contact_name, contact_phone, contact_email, company_name,
-        company_id, contact_id, source, temperature, value, tags, custom_fields, stage_entered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        company_id, contact_id, source, source_detail, temperature, value, tags, custom_fields, stage_entered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
        RETURNING *`,
       [
         orgId, pipelineId, stageId,
         deal_title || `Lead - ${contact_name || contact_phone}`,
         contact_name, contact_phone, contact_email, company_name,
-        companyId, contactId, source, temperature, value || null, [], {},
+        companyId, contactId, source, source_detail, temperature, value || null, [], {},
       ]
     );
 
@@ -1775,16 +1776,21 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
     const cleanPhone = String(phone).replace(/\D/g, '');
 
     // 2. Atualiza owner_id de todos os deals abertos do contato
+    // Tambem registra assigned_via, assigned_at, assigned_by para rastreabilidade
     const result = await query(
       `UPDATE deals d
-       SET owner_id = $3, updated_at = NOW()
+       SET owner_id = $3,
+           assigned_via = COALESCE($4, 'notificar_equipe'),
+           assigned_at = NOW(),
+           assigned_by = COALESCE($5, 'system'),
+           updated_at = NOW()
        FROM contacts c
        WHERE d.contact_id = c.id
          AND d.organization_id = $1
          AND d.status = 'open'
          AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
        RETURNING d.id`,
-      [orgId, cleanPhone, owner.id]
+      [orgId, cleanPhone, owner.id, req.body.assigned_via || null, req.body.assigned_by || null]
     );
 
     res.json({
@@ -1970,6 +1976,260 @@ router.patch('/deals/:id/close-no-response', async (req, res, next) => {
     );
 
     res.json({ deal: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// MENSAGENS (RASTREABILIDADE TOTAL)
+// ============================================
+
+/**
+ * POST /api/crm/messages
+ * Registra uma mensagem trocada com o cliente (in/out).
+ * Pode ser chamado pelo workflow Rica em paralelo (nao bloqueia).
+ *
+ * Body: {
+ *   phone: "5511...",         // OBRIGATORIO
+ *   direction: "in" | "out",  // OBRIGATORIO
+ *   text: string,
+ *   sender: "cliente" | "rica_ai" | "system_followup" | "executive" | "system_catchup",
+ *   content_type: "text" | "image" | "audio" | "document" | "system_note",
+ *   media_url: string (opcional),
+ *   sent_at: ISO timestamp (opcional, default NOW()),
+ *   n8n_execution_id: string (opcional),
+ *   workflow_name: string (opcional),
+ *   raw_payload: object (opcional)
+ * }
+ *
+ * Resolve automaticamente contact_id e deal_id (mais recente aberto) pelo phone.
+ * Retorna o message_id criado.
+ */
+router.post('/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const {
+      phone, direction, text, sender,
+      content_type = 'text', media_url = null,
+      sent_at = null, n8n_execution_id = null,
+      workflow_name = null, raw_payload = null,
+    } = req.body;
+
+    if (!phone || !direction) {
+      return res.status(400).json({ error: { message: 'phone e direction obrigatorios' } });
+    }
+    if (!['in', 'out'].includes(direction)) {
+      return res.status(400).json({ error: { message: 'direction deve ser "in" ou "out"' } });
+    }
+
+    const cleanPhone = String(phone).replace(/\D/g, '');
+
+    // Resolve contact_id + deal_id (mais recente aberto)
+    const contactRes = await query(
+      `SELECT id FROM contacts
+       WHERE organization_id = $1
+         AND REGEXP_REPLACE(phone, '\\D', '', 'g') = $2
+       LIMIT 1`,
+      [orgId, cleanPhone]
+    );
+    const contact_id = contactRes.rows[0]?.id || null;
+
+    let deal_id = null;
+    if (contact_id) {
+      const dealRes = await query(
+        `SELECT id FROM deals
+         WHERE organization_id = $1 AND contact_id = $2 AND status = 'open'
+         ORDER BY created_at DESC LIMIT 1`,
+        [orgId, contact_id]
+      );
+      deal_id = dealRes.rows[0]?.id || null;
+    }
+
+    const result = await query(
+      `INSERT INTO deal_messages
+        (organization_id, deal_id, contact_id, contact_phone, direction, sender,
+         content_type, text, media_url, n8n_execution_id, workflow_name, raw_payload, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13::timestamptz, NOW()))
+       RETURNING id, sent_at`,
+      [
+        orgId, deal_id, contact_id, cleanPhone, direction, sender,
+        content_type, text || null, media_url, n8n_execution_id, workflow_name,
+        raw_payload ? JSON.stringify(raw_payload) : null, sent_at,
+      ]
+    );
+
+    res.status(201).json({
+      message_id: result.rows[0].id,
+      sent_at: result.rows[0].sent_at,
+      deal_id,
+      contact_id,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/deals/:id/messages
+ * Retorna todas mensagens de um deal, ordenadas por sent_at.
+ */
+router.get('/deals/:id/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+
+    const result = await query(
+      `SELECT id, direction, sender, content_type, text, media_url,
+              n8n_execution_id, workflow_name, sent_at, created_at
+       FROM deal_messages
+       WHERE deal_id = $1 AND organization_id = $2
+       ORDER BY sent_at ASC
+       LIMIT $3`,
+      [id, orgId, limit]
+    );
+    res.json({ messages: result.rows, total: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/contacts/:phone/messages
+ * Retorna todas mensagens trocadas com o telefone, mesmo que ainda nao tenha deal_id.
+ */
+router.get('/contacts/by-phone/:phone/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const cleanPhone = String(req.params.phone).replace(/\D/g, '');
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+
+    const result = await query(
+      `SELECT id, deal_id, direction, sender, content_type, text, media_url,
+              n8n_execution_id, workflow_name, sent_at, created_at
+       FROM deal_messages
+       WHERE organization_id = $1
+         AND REGEXP_REPLACE(contact_phone, '\\D', '', 'g') = $2
+       ORDER BY sent_at ASC
+       LIMIT $3`,
+      [orgId, cleanPhone, limit]
+    );
+    res.json({ messages: result.rows, total: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/source-detail
+ * Atualiza o source_detail de um deal (origem detalhada do trafego).
+ * Usado pelo workflow da Rica quando detecta a fonte (anuncio_gps_padaria, etc).
+ */
+router.post('/deals/:id/source-detail', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { source_detail } = req.body;
+    if (!source_detail) {
+      return res.status(400).json({ error: { message: 'source_detail obrigatorio' } });
+    }
+    const result = await query(
+      `UPDATE deals SET source_detail = $3, updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING id, source_detail`,
+      [id, orgId, source_detail]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'deal nao encontrado' } });
+    }
+    res.json({ deal: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/source-detail-by-phone
+ * Mesma coisa que /deals/:id/source-detail mas resolve pelo telefone.
+ * Aplica em todos os deals abertos do contato.
+ */
+router.post('/deals/source-detail-by-phone', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { phone, source_detail } = req.body;
+    if (!phone || !source_detail) {
+      return res.status(400).json({ error: { message: 'phone e source_detail obrigatorios' } });
+    }
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const result = await query(
+      `UPDATE deals d
+       SET source_detail = $3, updated_at = NOW()
+       FROM contacts c
+       WHERE d.contact_id = c.id
+         AND d.organization_id = $1
+         AND d.status = 'open'
+         AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
+       RETURNING d.id`,
+      [orgId, cleanPhone, source_detail]
+    );
+    res.json({ updated: result.rows.length, deal_ids: result.rows.map(r => r.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/metrics/owner/:user_id?from=2026-05-01&to=2026-05-31
+ * Retorna metricas de leads atribuidos a um executivo no periodo.
+ */
+router.get('/metrics/owner/:user_id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { user_id } = req.params;
+    const from = req.query.from || '1970-01-01';
+    const to = req.query.to || new Date().toISOString();
+
+    const summary = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE assigned_via = 'notificar_equipe') AS via_notificar,
+         COUNT(*) FILTER (WHERE assigned_via = 'manual') AS via_manual,
+         COUNT(*) FILTER (WHERE assigned_via = 'catchup') AS via_catchup,
+         COUNT(*) FILTER (WHERE assigned_via = 'reassigned') AS via_reassigned,
+         COUNT(*) FILTER (WHERE assigned_via = 'historico') AS via_historico,
+         COUNT(*) AS total
+       FROM deals
+       WHERE organization_id = $1
+         AND owner_id = $2
+         AND assigned_at >= $3
+         AND assigned_at <= $4`,
+      [orgId, user_id, from, to]
+    );
+
+    const bySource = await query(
+      `SELECT source_detail, COUNT(*) AS count
+       FROM deals
+       WHERE organization_id = $1 AND owner_id = $2
+         AND assigned_at >= $3 AND assigned_at <= $4
+       GROUP BY source_detail ORDER BY count DESC`,
+      [orgId, user_id, from, to]
+    );
+
+    const byPipeline = await query(
+      `SELECT p.name AS pipeline, COUNT(*) AS count
+       FROM deals d LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       WHERE d.organization_id = $1 AND d.owner_id = $2
+         AND d.assigned_at >= $3 AND d.assigned_at <= $4
+       GROUP BY p.name ORDER BY count DESC`,
+      [orgId, user_id, from, to]
+    );
+
+    res.json({
+      user_id, from, to,
+      summary: summary.rows[0],
+      by_source_detail: bySource.rows,
+      by_pipeline: byPipeline.rows,
+    });
   } catch (error) {
     next(error);
   }
