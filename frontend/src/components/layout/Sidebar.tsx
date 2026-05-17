@@ -10,6 +10,7 @@ import {
   Menu,
   Clock,
   Target,
+  Route,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -18,6 +19,7 @@ import { useState } from 'react'
 
 const navItems = [
   { to: '/crm', icon: Target, label: 'CRM' },
+  { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderKanban, label: 'Projetos' },
   { to: '/tasks', icon: CheckSquare, label: 'Tarefas' },

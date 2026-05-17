@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/database.js';
+import * as leadJourney from '../services/leadJourney.js';
+import * as dealAudit from '../services/dealAudit.js';
 
 const router = Router();
 
@@ -809,6 +811,9 @@ router.post('/deals', async (req, res, next) => {
       title, contact_name, contact_email, contact_phone, company_name,
       owner_id, value, source = 'whatsapp', temperature = 'warm',
       tags, custom_fields, pipeline_id, company_id, contact_id,
+      // rastreabilidade
+      first_channel, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+      rica_session_id,
     } = req.body;
 
     // Get first pipeline stage for the given pipeline (or any)
@@ -838,14 +843,35 @@ router.post('/deals', async (req, res, next) => {
       ]
     );
 
+    const deal = result.rows[0];
+
     // Log creation activity
     await query(
       `INSERT INTO deal_activities (deal_id, type, description)
        VALUES ($1, 'note', $2)`,
-      [result.rows[0].id, `Lead criado via ${source}`]
+      [deal.id, `Lead criado via ${source}`]
     );
 
-    res.status(201).json({ deal: result.rows[0] });
+    // Rastreabilidade: grava evento e campos de origem (nao bloqueia resposta se falhar)
+    leadJourney.recordLeadCreated({
+      dealId: deal.id,
+      organizationId: orgId,
+      actorUserId: req.user?.id,
+      actorType: source === 'whatsapp' ? 'rica' : 'user',
+      firstChannel: first_channel || source || 'manual',
+      utmSource: utm_source,
+      utmMedium: utm_medium,
+      utmCampaign: utm_campaign,
+      utmContent: utm_content,
+      utmTerm: utm_term,
+      ricaSessionId: rica_session_id,
+    }).catch(err => console.error('[leadJourney] recordLeadCreated error:', err));
+
+    dealAudit.recordCreated(deal.id, orgId, req.user?.id, source === 'whatsapp' ? 'rica' : 'user', {
+      title: deal.title, source: deal.source, pipeline_id: deal.pipeline_id,
+    }).catch(err => console.error('[dealAudit] recordCreated error:', err));
+
+    res.status(201).json({ deal });
   } catch (error) {
     next(error);
   }
@@ -857,8 +883,13 @@ router.patch('/deals/:id', async (req, res, next) => {
     const orgId = getOrgId(req);
     const { id } = req.params;
 
-    // Get current deal state for stage change detection
-    const currentDeal = await query('SELECT pipeline_stage_id, status FROM deals WHERE id = $1', [id]);
+    // Get current deal state for stage change detection + audit diff
+    const currentDeal = await query(
+      `SELECT d.*, ps.name as stage_name FROM deals d
+       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+       WHERE d.id = $1`,
+      [id]
+    );
     if (currentDeal.rows.length === 0) {
       return res.status(404).json({ error: { message: 'Deal nao encontrado' } });
     }
@@ -907,16 +938,34 @@ router.patch('/deals/:id', async (req, res, next) => {
       values
     );
 
-    // If stage changed, create activity
+    // If stage changed, create activity + audit + journey
     if (req.body.pipeline_stage_id && req.body.pipeline_stage_id !== oldDeal.pipeline_stage_id) {
-      const stageResult = await query('SELECT name FROM pipeline_stages WHERE id = $1', [req.body.pipeline_stage_id]);
-      const stageName = stageResult.rows[0]?.name || 'Desconhecida';
+      const stageResult = await query('SELECT name, is_won, is_lost FROM pipeline_stages WHERE id = $1', [req.body.pipeline_stage_id]);
+      const stage = stageResult.rows[0];
+      const stageName = stage?.name || 'Desconhecida';
       await query(
         `INSERT INTO deal_activities (deal_id, type, description)
          VALUES ($1, 'stage_change', $2)`,
         [id, `Movido para etapa: ${stageName}`]
       );
+      const actorType = req.actorType || 'user';
+      leadJourney.recordStageChange({
+        dealId: id, organizationId: orgId,
+        actorUserId: req.user?.id, actorType,
+        fromStageId: oldDeal.pipeline_stage_id, fromStageName: oldDeal.stage_name,
+        toStageId: req.body.pipeline_stage_id, toStageName: stageName,
+        isWon: stage?.is_won || false, isLost: stage?.is_lost || false,
+      }).catch(() => {});
+      dealAudit.recordStageChange(
+        id, orgId, req.user?.id, actorType,
+        oldDeal.pipeline_stage_id, oldDeal.stage_name,
+        req.body.pipeline_stage_id, stageName
+      ).catch(() => {});
     }
+
+    // Audit diff for other changed fields
+    dealAudit.recordDiff(id, orgId, req.user?.id, req.actorType || 'user', oldDeal, req.body)
+      .catch(() => {});
 
     res.json({ deal: result.rows[0] });
   } catch (error) {
@@ -978,6 +1027,21 @@ router.patch('/deals/:id/stage', async (req, res, next) => {
       from_stage_id: fromStageId,
       to_stage_id: pipeline_stage_id,
     }, orgId);
+
+    // Journey + audit
+    const fromStageNameResult = await query('SELECT name FROM pipeline_stages WHERE id = $1', [fromStageId]);
+    const fromStageName = fromStageNameResult.rows[0]?.name || null;
+    leadJourney.recordStageChange({
+      dealId: id, organizationId: orgId,
+      actorUserId: req.user?.id, actorType: req.actorType || 'user',
+      fromStageId, fromStageName,
+      toStageId: pipeline_stage_id, toStageName: stage.name,
+      isWon: stage.is_won, isLost: stage.is_lost,
+    }).catch(() => {});
+    dealAudit.recordStageChange(
+      id, orgId, req.user?.id, req.actorType || 'user',
+      fromStageId, fromStageName, pipeline_stage_id, stage.name
+    ).catch(() => {});
 
     res.json({ deal: result.rows[0] });
   } catch (error) {
@@ -1077,24 +1141,49 @@ router.get('/deals/:id/activities', async (req, res, next) => {
   }
 });
 
-// Create activity
+// Create activity (enriquecido com outcome, transcription, direction, duration)
 router.post('/deals/:id/activities', async (req, res, next) => {
   try {
+    const orgId = getOrgId(req);
     const { id } = req.params;
-    const { type, description, user_id, metadata, scheduled_at, completed_at } = req.body;
+    const {
+      type, description, user_id, metadata, scheduled_at, completed_at,
+      outcome, transcription, direction, duration_minutes,
+    } = req.body;
 
     if (!type) {
       return res.status(400).json({ error: { message: 'type obrigatorio' } });
     }
 
     const result = await query(
-      `INSERT INTO deal_activities (deal_id, user_id, type, description, metadata, scheduled_at, completed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO deal_activities
+         (deal_id, user_id, type, description, metadata, scheduled_at, completed_at,
+          outcome, transcription, direction, duration_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [id, user_id || req.user?.id, type, description, metadata || {}, scheduled_at, completed_at]
+      [
+        id, user_id || req.user?.id, type, description, metadata || {},
+        scheduled_at || null, completed_at || null,
+        outcome || null, transcription || null,
+        direction || null, duration_minutes || null,
+      ]
     );
 
-    await query('UPDATE deals SET updated_at = NOW() WHERE id = $1', [id]);
+    await query('UPDATE deals SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1', [id]);
+
+    // Journey event (fire and forget)
+    leadJourney.recordActivityLogged({
+      dealId: id, organizationId: orgId,
+      actorUserId: user_id || req.user?.id,
+      actorType: req.actorType || 'user',
+      activityType: type,
+      direction: direction || null,
+      isScheduled: !!scheduled_at && type === 'meeting',
+    }).catch(() => {});
+
+    dealAudit.recordChange(id, orgId, user_id || req.user?.id, req.actorType || 'user',
+      'activity_added', null, null, { type, direction, outcome }, {}
+    ).catch(() => {});
 
     res.status(201).json({ activity: result.rows[0] });
   } catch (error) {
@@ -1787,6 +1876,16 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
       [orgId, cleanPhone, owner.id]
     );
 
+    // Journey + audit for each deal updated
+    for (const row of result.rows) {
+      leadJourney.recordOwnerAssigned({
+        dealId: row.id, organizationId: orgId,
+        actorUserId: null, actorType: 'rica',
+        ownerId: owner.id, ownerName: owner.name,
+      }).catch(() => {});
+      dealAudit.recordOwnerAssigned(row.id, orgId, null, 'rica', owner.id, owner.name).catch(() => {});
+    }
+
     res.json({
       updated: result.rows.length,
       deal_ids: result.rows.map(r => r.id),
@@ -1970,6 +2069,276 @@ router.patch('/deals/:id/close-no-response', async (req, res, next) => {
     );
 
     res.json({ deal: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// DEAL MESSAGES (Conversa Rica)
+// ============================================
+
+/**
+ * POST /api/crm/deals/:id/messages
+ * Grava uma mensagem da conversa. Idempotente via external_message_id.
+ * Chamado pelo workflow n8n a cada turno da conversa.
+ *
+ * Body: { role, channel, content, media_url, media_type,
+ *         external_message_id, rica_session_id, metadata, occurred_at }
+ */
+router.post('/deals/:id/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const {
+      role = 'client', channel = 'whatsapp', content,
+      media_url, media_type, external_message_id,
+      rica_session_id, metadata = {}, occurred_at,
+    } = req.body;
+
+    if (!content) return res.status(400).json({ error: { message: 'content obrigatorio' } });
+
+    const result = await query(
+      `INSERT INTO deal_messages
+         (deal_id, organization_id, role, channel, content, media_url, media_type,
+          external_message_id, rica_session_id, metadata, occurred_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11::timestamptz, NOW()))
+       ON CONFLICT (deal_id, external_message_id) DO UPDATE
+         SET content = EXCLUDED.content, metadata = EXCLUDED.metadata
+       RETURNING *`,
+      [id, orgId, role, channel, content, media_url || null, media_type || null,
+       external_message_id || null, rica_session_id || null,
+       JSON.stringify(metadata), occurred_at || null]
+    );
+
+    const msg = result.rows[0];
+
+    // Atualizar last_client_message_at e rica_session_id no deal
+    if (role === 'client') {
+      await query(
+        `UPDATE deals SET last_client_message_at = COALESCE($2::timestamptz, NOW()),
+         rica_session_id = COALESCE(rica_session_id, $3), updated_at = NOW() WHERE id = $1`,
+        [id, occurred_at || null, rica_session_id || null]
+      );
+    }
+
+    // Evento de jornada
+    leadJourney.recordEvent({
+      dealId: id, organizationId: orgId, eventType: 'rica_message',
+      actorType: role === 'rica' ? 'rica' : (role === 'client' ? 'system' : 'user'),
+      toValue: { role, channel, external_message_id },
+      metadata: { rica_session_id },
+    }).catch(() => {});
+
+    res.status(201).json({ message: msg });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/deals/:id/messages
+ * Lista mensagens paginadas (cursor por occurred_at).
+ */
+router.get('/deals/:id/messages', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { limit = 100, before } = req.query;
+
+    let sql = `SELECT * FROM deal_messages WHERE deal_id = $1`;
+    const params = [id];
+    let idx = 2;
+
+    if (before) {
+      sql += ` AND occurred_at < $${idx++}`;
+      params.push(before);
+    }
+
+    sql += ` ORDER BY occurred_at ASC LIMIT $${idx}`;
+    params.push(Math.min(parseInt(limit) || 100, 500));
+
+    const result = await query(sql, params);
+    res.json({ messages: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/messages/batch
+ * Insere multiplas mensagens de uma vez (bulk import).
+ */
+router.post('/deals/:id/messages/batch', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { messages } = req.body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: { message: 'messages deve ser um array nao vazio' } });
+    }
+
+    const inserted = [];
+    for (const m of messages) {
+      const r = await query(
+        `INSERT INTO deal_messages
+           (deal_id, organization_id, role, channel, content, media_url, media_type,
+            external_message_id, rica_session_id, metadata, occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11::timestamptz, NOW()))
+         ON CONFLICT (deal_id, external_message_id) DO NOTHING
+         RETURNING *`,
+        [id, orgId, m.role || 'client', m.channel || 'whatsapp', m.content,
+         m.media_url || null, m.media_type || null, m.external_message_id || null,
+         m.rica_session_id || null, JSON.stringify(m.metadata || {}), m.occurred_at || null]
+      );
+      if (r.rows.length > 0) inserted.push(r.rows[0]);
+    }
+
+    res.status(201).json({ inserted: inserted.length, messages: inserted });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// LEAD JOURNEY (Rastreabilidade)
+// ============================================
+
+/**
+ * GET /api/crm/deals/:id/journey
+ * Retorna os eventos da jornada do lead em ordem cronologica.
+ */
+router.get('/deals/:id/journey', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `SELECT lj.*, u.name as actor_name
+       FROM lead_journey_events lj
+       LEFT JOIN users u ON u.id = lj.actor_user_id
+       WHERE lj.deal_id = $1
+       ORDER BY lj.occurred_at ASC`,
+      [id]
+    );
+    res.json({ events: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/journey/funnel
+ * Agrega contagens e tempo medio por tipo de evento (para dashboard de jornada).
+ * Query params: pipeline_id, from, to, first_channel
+ */
+router.get('/journey/funnel', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { pipeline_id, from, to, first_channel } = req.query;
+
+    // Contagem de deals que passaram por cada evento
+    let dealFilter = `WHERE d.organization_id = $1`;
+    const params = [orgId];
+    let idx = 2;
+
+    if (pipeline_id) { dealFilter += ` AND d.pipeline_id = $${idx++}`; params.push(pipeline_id); }
+    if (from) { dealFilter += ` AND d.created_at >= $${idx++}`; params.push(from); }
+    if (to) { dealFilter += ` AND d.created_at <= $${idx++}`; params.push(to); }
+    if (first_channel) { dealFilter += ` AND d.first_channel = $${idx++}`; params.push(first_channel); }
+
+    const result = await query(
+      `WITH filtered_deals AS (
+         SELECT d.id FROM deals d ${dealFilter}
+       ),
+       event_counts AS (
+         SELECT lj.event_type,
+                COUNT(DISTINCT lj.deal_id) as deals_reached,
+                AVG(EXTRACT(EPOCH FROM (lj.occurred_at - d.created_at))/3600) as avg_hours_from_creation
+         FROM lead_journey_events lj
+         JOIN filtered_deals fd ON fd.id = lj.deal_id
+         JOIN deals d ON d.id = lj.deal_id
+         GROUP BY lj.event_type
+       )
+       SELECT * FROM event_counts
+       ORDER BY deals_reached DESC`,
+      params
+    );
+
+    // Total de leads no periodo
+    const totalResult = await query(
+      `SELECT COUNT(*) as total FROM deals d ${dealFilter}`,
+      params
+    );
+
+    res.json({
+      funnel: result.rows,
+      total_leads: parseInt(totalResult.rows[0]?.total || 0),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/journey/sources
+ * Breakdown de leads por first_channel e UTM source.
+ */
+router.get('/journey/sources', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { from, to } = req.query;
+
+    let where = 'WHERE d.organization_id = $1';
+    const params = [orgId];
+    let idx = 2;
+    if (from) { where += ` AND d.created_at >= $${idx++}`; params.push(from); }
+    if (to) { where += ` AND d.created_at <= $${idx++}`; params.push(to); }
+
+    const result = await query(
+      `SELECT
+         COALESCE(d.first_channel, 'unknown') as channel,
+         COALESCE(d.utm_source, 'direct') as utm_source,
+         d.utm_medium, d.utm_campaign,
+         COUNT(*) as leads,
+         COUNT(*) FILTER (WHERE d.status = 'won') as won,
+         COUNT(*) FILTER (WHERE d.status = 'lost') as lost,
+         COALESCE(SUM(d.value) FILTER (WHERE d.status = 'won'), 0) as won_value
+       FROM deals d
+       ${where}
+       GROUP BY d.first_channel, d.utm_source, d.utm_medium, d.utm_campaign
+       ORDER BY leads DESC`,
+      params
+    );
+
+    res.json({ sources: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// DEAL AUDIT LOG (Historico de alteracoes)
+// ============================================
+
+/**
+ * GET /api/crm/deals/:id/audit
+ * Retorna o historico de alteracoes do deal.
+ */
+router.get('/deals/:id/audit', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { limit = 100 } = req.query;
+
+    const result = await query(
+      `SELECT dal.*, u.name as actor_name
+       FROM deal_audit_log dal
+       LEFT JOIN users u ON u.id = dal.user_id
+       WHERE dal.deal_id = $1
+       ORDER BY dal.created_at DESC
+       LIMIT $2`,
+      [id, Math.min(parseInt(limit) || 100, 500)]
+    );
+
+    res.json({ audit: result.rows, count: result.rows.length });
   } catch (error) {
     next(error);
   }

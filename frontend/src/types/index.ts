@@ -410,7 +410,75 @@ export interface DealActivity {
   metadata: Record<string, unknown>
   scheduled_at: string | null
   completed_at: string | null
+  outcome: string | null
+  transcription: string | null
+  direction: string | null
+  duration_minutes: number | null
   created_at: string
+}
+
+export interface DealMessage {
+  id: string
+  deal_id: string
+  organization_id: string
+  role: 'client' | 'rica' | 'agent' | 'system'
+  channel: string
+  content: string
+  media_url: string | null
+  media_type: string | null
+  external_message_id: string | null
+  rica_session_id: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface LeadJourneyEvent {
+  id: string
+  deal_id: string
+  organization_id: string
+  event_type: string
+  from_value: Record<string, unknown> | null
+  to_value: Record<string, unknown> | null
+  actor_user_id: string | null
+  actor_name?: string
+  actor_type: 'user' | 'rica' | 'automation' | 'system'
+  idempotency_key: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface DealAuditEntry {
+  id: string
+  deal_id: string
+  organization_id: string
+  user_id: string | null
+  actor_name?: string
+  actor_type: 'user' | 'rica' | 'automation' | 'system'
+  action: string
+  field: string | null
+  old_value: unknown
+  new_value: unknown
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface JourneyFunnelRow {
+  event_type: string
+  deals_reached: number
+  avg_hours_from_creation: number | null
+}
+
+export interface JourneySourceRow {
+  channel: string
+  utm_source: string
+  utm_medium: string | null
+  utm_campaign: string | null
+  leads: number
+  won: number
+  lost: number
+  won_value: number
 }
 
 export interface DealProduct {

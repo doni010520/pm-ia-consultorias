@@ -424,11 +424,30 @@ export const crmApi = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    addActivity: (id: string, data: { type: string; description?: string }) =>
+    addActivity: (id: string, data: {
+      type: string; description?: string;
+      outcome?: string; direction?: string; duration_minutes?: number;
+      transcription?: string; scheduled_at?: string; completed_at?: string;
+    }) =>
       request<{ activity: import('@/types').DealActivity }>(`/api/crm/deals/${id}/activities`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    messages: {
+      list: (dealId: string, params?: { limit?: number; before?: string }) =>
+        request<{ messages: import('@/types').DealMessage[]; count: number }>(
+          `/api/crm/deals/${dealId}/messages${params ? `?${new URLSearchParams(params as Record<string, string>)}` : ''}`
+        ),
+      create: (dealId: string, data: Record<string, unknown>) =>
+        request<{ message: import('@/types').DealMessage }>(`/api/crm/deals/${dealId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+    },
+    journey: (dealId: string) =>
+      request<{ events: import('@/types').LeadJourneyEvent[]; count: number }>(`/api/crm/deals/${dealId}/journey`),
+    audit: (dealId: string) =>
+      request<{ audit: import('@/types').DealAuditEntry[]; count: number }>(`/api/crm/deals/${dealId}/audit`),
     contacts: {
       list: (dealId: string) =>
         request<{ contacts: import('@/types').DealContact[] }>(`/api/crm/deals/${dealId}/contacts`),
@@ -445,6 +464,18 @@ export const crmApi = {
       delete: (dealId: string, contactId: string) =>
         request<{ deleted: boolean }>(`/api/crm/deals/${dealId}/contacts/${contactId}`, { method: 'DELETE' }),
     },
+  },
+
+  // Journey analytics
+  journey: {
+    funnel: (filters?: { pipeline_id?: string; from?: string; to?: string; first_channel?: string }) =>
+      request<{ funnel: import('@/types').JourneyFunnelRow[]; total_leads: number }>(
+        `/api/crm/journey/funnel${withOrg(filters)}`
+      ),
+    sources: (filters?: { from?: string; to?: string }) =>
+      request<{ sources: import('@/types').JourneySourceRow[] }>(
+        `/api/crm/journey/sources${withOrg(filters)}`
+      ),
   },
 
   // Register Lead (N8N transactional)
