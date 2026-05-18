@@ -39,7 +39,8 @@ export interface ProjectMetrics {
 
 export interface Task {
   id: string
-  project_id: string
+  project_id: string | null
+  deal_id: string | null
   parent_task_id: string | null
   title: string
   description: string | null
@@ -410,7 +411,75 @@ export interface DealActivity {
   metadata: Record<string, unknown>
   scheduled_at: string | null
   completed_at: string | null
+  outcome: string | null
+  transcription: string | null
+  direction: string | null
+  duration_minutes: number | null
   created_at: string
+}
+
+export interface DealMessage {
+  id: string
+  deal_id: string
+  organization_id: string
+  role: 'client' | 'rica' | 'agent' | 'system'
+  channel: string
+  content: string
+  media_url: string | null
+  media_type: string | null
+  external_message_id: string | null
+  rica_session_id: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface LeadJourneyEvent {
+  id: string
+  deal_id: string
+  organization_id: string
+  event_type: string
+  from_value: Record<string, unknown> | null
+  to_value: Record<string, unknown> | null
+  actor_user_id: string | null
+  actor_name?: string
+  actor_type: 'user' | 'rica' | 'automation' | 'system'
+  idempotency_key: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface DealAuditEntry {
+  id: string
+  deal_id: string
+  organization_id: string
+  user_id: string | null
+  actor_name?: string
+  actor_type: 'user' | 'rica' | 'automation' | 'system'
+  action: string
+  field: string | null
+  old_value: unknown
+  new_value: unknown
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface JourneyFunnelRow {
+  event_type: string
+  deals_reached: number
+  avg_hours_from_creation: number | null
+}
+
+export interface JourneySourceRow {
+  channel: string
+  utm_source: string
+  utm_medium: string | null
+  utm_campaign: string | null
+  leads: number
+  won: number
+  lost: number
+  won_value: number
 }
 
 export interface DealProduct {
@@ -482,6 +551,55 @@ export interface CrmStats {
     avg_days_in_stage?: number
   }>
   recent_activities: DealActivity[]
+}
+
+export interface DealFile {
+  id: string
+  deal_id: string
+  organization_id: string
+  uploaded_by: string | null
+  uploaded_by_name?: string
+  file_name: string
+  file_size: number | null
+  mime_type: string | null
+  storage_path: string
+  category: 'proposal' | 'contract' | 'presentation' | 'nda' | 'report' | 'other'
+  description: string | null
+  created_at: string
+}
+
+export interface ProposalTemplate {
+  id: string
+  organization_id: string
+  created_by: string | null
+  created_by_name?: string
+  name: string
+  description: string | null
+  body_markdown: string
+  variables: Array<{ key: string; label: string; default?: string }>
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DealProposal {
+  id: string
+  deal_id: string
+  organization_id: string
+  template_id: string | null
+  template_name?: string
+  created_by: string | null
+  created_by_name?: string
+  title: string
+  variable_values: Record<string, string>
+  rendered_markdown: string | null
+  file_id: string | null
+  file_name?: string | null
+  storage_path?: string | null
+  status: 'draft' | 'generating' | 'ready' | 'sent'
+  sent_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface TimeEntry {

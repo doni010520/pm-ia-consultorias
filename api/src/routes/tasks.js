@@ -10,11 +10,12 @@ const router = Router();
  */
 router.get('/', async (req, res, next) => {
   try {
-    const { organization_id, project_id, assignee_id, status, limit } = req.query;
-    
+    const { organization_id, project_id, deal_id, assignee_id, status, limit } = req.query;
+
     const tasks = await getTasks({
       organization_id: organization_id || process.env.DEFAULT_ORGANIZATION_ID,
       project_id,
+      deal_id,
       assignee_id,
       status,
       limit: parseInt(limit) || 50
@@ -35,20 +36,22 @@ router.post('/', async (req, res, next) => {
     const {
       organization_id,
       project_id,
+      deal_id,
       title,
       description,
       assignee_id,
       due_date,
       priority
     } = req.body;
-    
+
     if (!title) {
       return res.status(400).json({ error: { message: 'Título é obrigatório' } });
     }
-    
+
     const task = await createTask({
       organization_id: organization_id || process.env.DEFAULT_ORGANIZATION_ID,
       project_id,
+      deal_id: deal_id || null,
       title,
       description,
       assignee_id,

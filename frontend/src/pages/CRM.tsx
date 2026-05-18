@@ -8,6 +8,8 @@ import {
   Zap, Globe, Users, Trophy, TrendingUp,
   FileText, Lightbulb, Send, Edit3, Check, User,
   Filter, Pencil, BarChart3, Target, AlertTriangle,
+  Bot, History, Route, ChevronUp, ArrowDownUp,
+  Paperclip, CheckSquare, FileSignature, Download, Loader2,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -25,7 +27,7 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 import type {
-  Deal, PipelineStage, CrmStats,
+  Deal, PipelineStage, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
 } from '@/types'
 
 // ============================================
@@ -1531,7 +1533,10 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
   const [editingValue, setEditingValue] = useState(false)
   const [valueDraft, setValueDraft] = useState('')
   const [newInsight, setNewInsight] = useState({ category: 'note', content: '' })
-  const [newActivity, setNewActivity] = useState({ type: 'note', description: '' })
+  const [newActivity, setNewActivity] = useState({
+    type: 'note', description: '', outcome: '', direction: 'outbound', transcription: '', showTranscription: false,
+  })
+  const [expandedTranscriptions, setExpandedTranscriptions] = useState<Set<string>>(new Set())
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm-deal', dealId],
@@ -1542,6 +1547,108 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
     queryKey: ['crm-deal-contacts', dealId],
     queryFn: () => crmApi.deals.contacts.list(dealId),
   })
+
+  const { data: messagesData } = useQuery({
+    queryKey: ['crm-deal-messages', dealId],
+    queryFn: () => crmApi.deals.messages.list(dealId),
+    enabled: activeTab === 'rica',
+  })
+
+  const { data: journeyData } = useQuery({
+    queryKey: ['crm-deal-journey', dealId],
+    queryFn: () => crmApi.deals.journey(dealId),
+    enabled: activeTab === 'journey',
+  })
+
+  const { data: auditData } = useQuery({
+    queryKey: ['crm-deal-audit', dealId],
+    queryFn: () => crmApi.deals.audit(dealId),
+    enabled: activeTab === 'history',
+  })
+
+  const { data: dealTasksData, refetch: refetchTasks } = useQuery({
+    queryKey: ['crm-deal-tasks', dealId],
+    queryFn: () => crmApi.deals.tasks.list(dealId),
+    enabled: activeTab === 'tasks',
+  })
+
+  const { data: dealFilesData, refetch: refetchFiles } = useQuery({
+    queryKey: ['crm-deal-files', dealId],
+    queryFn: () => crmApi.deals.files.list(dealId),
+    enabled: activeTab === 'files',
+  })
+
+  const { data: dealProposalsData, refetch: refetchProposals } = useQuery({
+    queryKey: ['crm-deal-proposals', dealId],
+    queryFn: () => crmApi.deals.proposals.list(dealId),
+    enabled: activeTab === 'proposals',
+  })
+
+  const { data: proposalTemplatesData } = useQuery({
+    queryKey: ['crm-proposal-templates'],
+    queryFn: () => crmApi.proposalTemplates.list(),
+    enabled: activeTab === 'proposals',
+  })
+
+  // New task form
+  const [newTask, setNewTask] = useState({ title: '', assignee_id: '', due_date: '', priority: 'normal' })
+  const [showNewTask, setShowNewTask] = useState(false)
+  const [fileUploading, setFileUploading] = useState(false)
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [proposalTitle, setProposalTitle] = useState('')
+  const [proposalVars, setProposalVars] = useState<Record<string, string>>({})
+  const [generatingProposal, setGeneratingProposal] = useState(false)
+
+  const addTaskMutation = useMutation({
+    mutationFn: (d: Record<string, unknown>) => crmApi.deals.tasks.create(dealId, d),
+    onSuccess: () => { refetchTasks(); setNewTask({ title: '', assignee_id: '', due_date: '', priority: 'normal' }); setShowNewTask(false) },
+  })
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
+      fetch(`/api/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('pm-ia-token')}` },
+        body: JSON.stringify({ status }),
+      }).then(r => r.json()),
+    onSuccess: () => refetchTasks(),
+  })
+
+  const deleteFileMutation = useMutation({
+    mutationFn: (fileId: string) => crmApi.deals.files.delete(dealId, fileId),
+    onSuccess: () => refetchFiles(),
+  })
+
+  const generateProposalMutation = useMutation({
+    mutationFn: () => crmApi.deals.proposals.create(dealId, {
+      template_id: selectedTemplateId,
+      title: proposalTitle || undefined,
+      variable_values: proposalVars,
+    }),
+    onSuccess: () => { refetchProposals(); setSelectedTemplateId(''); setProposalTitle(''); setProposalVars({}); setGeneratingProposal(false) },
+    onError: () => setGeneratingProposal(false),
+  })
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('category', 'other')
+      await crmApi.deals.files.upload(dealId, fd)
+      refetchFiles()
+    } finally {
+      setFileUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleDownloadFile = async (fileId: string) => {
+    const { url } = await crmApi.deals.files.download(dealId, fileId)
+    window.open(url, '_blank')
+  }
 
   const updateMutation = useMutation({
     mutationFn: (updateData: Record<string, unknown>) => crmApi.deals.update(dealId, updateData),
@@ -1561,10 +1668,10 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
   })
 
   const addActivityMutation = useMutation({
-    mutationFn: (d: { type: string; description?: string }) => crmApi.deals.addActivity(dealId, d),
+    mutationFn: (d: Record<string, unknown>) => crmApi.deals.addActivity(dealId, d as Parameters<typeof crmApi.deals.addActivity>[1]),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm-deal', dealId] })
-      setNewActivity({ type: 'note', description: '' })
+      setNewActivity({ type: 'note', description: '', outcome: '', direction: 'outbound', transcription: '', showTranscription: false })
     },
   })
 
@@ -1607,7 +1714,22 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
   }
 
   const submitActivity = () => {
-    if (newActivity.description.trim()) addActivityMutation.mutate({ type: newActivity.type, description: newActivity.description.trim() })
+    if (!newActivity.description.trim()) return
+    addActivityMutation.mutate({
+      type: newActivity.type,
+      description: newActivity.description.trim(),
+      direction: newActivity.direction || undefined,
+      outcome: newActivity.outcome || undefined,
+      transcription: newActivity.transcription.trim() || undefined,
+    })
+  }
+
+  const toggleTranscription = (id: string) => {
+    setExpandedTranscriptions(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
   return (
@@ -1903,34 +2025,83 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
         {/* Bottom Tabs */}
         <div className="border-t border-slate-100 px-6 py-4">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="activities">Atividades</TabsTrigger>
-              <TabsTrigger value="contacts">Contatos</TabsTrigger>
+            <TabsList className="flex-wrap h-auto gap-1">
+              <TabsTrigger value="activities" className="text-xs"><Activity className="h-3.5 w-3.5 mr-1" />Atividades</TabsTrigger>
+              <TabsTrigger value="contacts" className="text-xs"><Users className="h-3.5 w-3.5 mr-1" />Contatos</TabsTrigger>
+              <TabsTrigger value="tasks" className="text-xs"><CheckSquare className="h-3.5 w-3.5 mr-1" />Tarefas</TabsTrigger>
+              <TabsTrigger value="files" className="text-xs"><Paperclip className="h-3.5 w-3.5 mr-1" />Arquivos</TabsTrigger>
+              <TabsTrigger value="proposals" className="text-xs"><FileSignature className="h-3.5 w-3.5 mr-1" />Propostas</TabsTrigger>
+              <TabsTrigger value="rica" className="text-xs"><Bot className="h-3.5 w-3.5 mr-1" />Conversa Rica</TabsTrigger>
+              <TabsTrigger value="journey" className="text-xs"><Route className="h-3.5 w-3.5 mr-1" />Jornada</TabsTrigger>
+              <TabsTrigger value="history" className="text-xs"><History className="h-3.5 w-3.5 mr-1" />Histórico</TabsTrigger>
             </TabsList>
 
+            {/* ── ATIVIDADES ────────────────────────────────── */}
             <TabsContent value="activities" className="mt-4">
-              <div className="flex gap-2 mb-4">
-                <Select value={newActivity.type} onValueChange={v => setNewActivity(p => ({ ...p, type: v }))}>
-                  <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="note">Nota</SelectItem>
-                    <SelectItem value="call">Ligacao</SelectItem>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="meeting">Reuniao</SelectItem>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Registrar atividade..."
-                  value={newActivity.description}
-                  onChange={e => setNewActivity(p => ({ ...p, description: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') submitActivity() }}
-                  className="flex-1 h-8 text-sm"
-                />
-                <Button size="sm" variant="outline" className="h-8" disabled={!newActivity.description.trim() || addActivityMutation.isPending} onClick={submitActivity}>
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+              {/* Form de nova atividade */}
+              <div className="bg-slate-50 rounded-lg p-3 mb-4 space-y-2">
+                <div className="flex gap-2">
+                  <Select value={newActivity.type} onValueChange={v => setNewActivity(p => ({ ...p, type: v }))}>
+                    <SelectTrigger className="w-[120px] h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="note">Nota</SelectItem>
+                      <SelectItem value="call">Ligação</SelectItem>
+                      <SelectItem value="email">E-mail</SelectItem>
+                      <SelectItem value="meeting">Reunião</SelectItem>
+                      <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {newActivity.type !== 'note' && (
+                    <Select value={newActivity.direction} onValueChange={v => setNewActivity(p => ({ ...p, direction: v }))}>
+                      <SelectTrigger className="w-[110px] h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="outbound"><ArrowDownUp className="h-3 w-3 inline mr-1" />Ativo</SelectItem>
+                        <SelectItem value="inbound"><ArrowDownUp className="h-3 w-3 inline mr-1" />Recebido</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select value={newActivity.outcome} onValueChange={v => setNewActivity(p => ({ ...p, outcome: v }))}>
+                    <SelectTrigger className="w-[120px] h-8 text-xs bg-white">
+                      <SelectValue placeholder="Resultado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="replied">Respondeu</SelectItem>
+                      <SelectItem value="no_reply">Sem resposta</SelectItem>
+                      <SelectItem value="scheduled">Agendado</SelectItem>
+                      <SelectItem value="closed">Encerrado</SelectItem>
+                      <SelectItem value="no_show">No-show</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Descreva a atividade..."
+                    value={newActivity.description}
+                    onChange={e => setNewActivity(p => ({ ...p, description: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) submitActivity() }}
+                    className="flex-1 h-8 text-sm bg-white"
+                  />
+                  <Button
+                    size="sm" variant="ghost" className="h-8 text-xs text-slate-500"
+                    onClick={() => setNewActivity(p => ({ ...p, showTranscription: !p.showTranscription }))}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8" disabled={!newActivity.description.trim() || addActivityMutation.isPending} onClick={submitActivity}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                {newActivity.showTranscription && (
+                  <Textarea
+                    placeholder="Cole a conversa ou transcrição aqui..."
+                    value={newActivity.transcription}
+                    onChange={e => setNewActivity(p => ({ ...p, transcription: e.target.value }))}
+                    className="text-xs min-h-[80px] bg-white"
+                  />
+                )}
               </div>
+
+              {/* Lista de atividades */}
               <div className="space-y-0">
                 {activities.map((act, idx) => (
                   <div key={act.id} className="flex gap-3">
@@ -1940,13 +2111,40 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                       </div>
                       {idx < activities.length - 1 && <div className="w-px flex-1 bg-slate-200 my-1" />}
                     </div>
-                    <div className="pb-4 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-slate-600 capitalize">{act.type}</span>
+                    <div className="pb-4 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-slate-700 capitalize">{act.type}</span>
+                        {act.direction && (
+                          <Badge variant="outline" className="text-[10px] h-4">
+                            {act.direction === 'outbound' ? '↑ Ativo' : '↓ Recebido'}
+                          </Badge>
+                        )}
+                        {act.outcome && (
+                          <Badge
+                            className={`text-[10px] h-4 ${act.outcome === 'replied' || act.outcome === 'scheduled' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : act.outcome === 'no_reply' || act.outcome === 'no_show' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                            variant="outline"
+                          >
+                            {act.outcome === 'replied' ? 'Respondeu' : act.outcome === 'no_reply' ? 'Sem resposta' : act.outcome === 'scheduled' ? 'Agendado' : act.outcome === 'no_show' ? 'No-show' : act.outcome}
+                          </Badge>
+                        )}
                         {act.user_name && <span className="text-xs text-slate-400">por {act.user_name}</span>}
                         <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">{formatDate(act.created_at)}</span>
                       </div>
                       {act.description && <p className="text-sm text-slate-600 mt-0.5">{act.description}</p>}
+                      {act.transcription && (
+                        <div className="mt-1">
+                          <button
+                            className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                            onClick={() => toggleTranscription(act.id)}
+                          >
+                            {expandedTranscriptions.has(act.id) ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            {expandedTranscriptions.has(act.id) ? 'Ocultar transcrição' : 'Ver transcrição'}
+                          </button>
+                          {expandedTranscriptions.has(act.id) && (
+                            <pre className="mt-1 text-xs text-slate-500 bg-slate-50 rounded p-2 whitespace-pre-wrap max-h-48 overflow-y-auto">{act.transcription}</pre>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1956,6 +2154,7 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
               </div>
             </TabsContent>
 
+            {/* ── CONTATOS ──────────────────────────────────── */}
             <TabsContent value="contacts" className="mt-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 {contacts.map(c => (
@@ -1981,6 +2180,443 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                 )}
               </div>
             </TabsContent>
+
+            {/* ── CONVERSA RICA ─────────────────────────────── */}
+            <TabsContent value="rica" className="mt-4">
+              {(() => {
+                const messages = messagesData?.messages ?? []
+                if (messages.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+                      <Bot className="h-8 w-8" />
+                      <p className="text-sm">Nenhuma mensagem da Rica registrada</p>
+                      <p className="text-xs text-slate-300">As mensagens aparecerão aqui assim que o workflow n8n for configurado</p>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                    {messages.map(msg => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.role === 'client' ? 'justify-start' : 'justify-end'}`}
+                      >
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+                          msg.role === 'client'
+                            ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'
+                            : msg.role === 'rica'
+                            ? 'bg-indigo-600 text-white rounded-tr-sm'
+                            : msg.role === 'agent'
+                            ? 'bg-emerald-600 text-white rounded-tr-sm'
+                            : 'bg-slate-100 text-slate-500 text-xs italic'
+                        }`}>
+                          {msg.role !== 'system' && (
+                            <p className="text-[10px] font-semibold mb-1 opacity-70">
+                              {msg.role === 'client' ? 'Cliente' : msg.role === 'rica' ? 'Rica' : 'Agente'}
+                            </p>
+                          )}
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                          <p className={`text-[10px] mt-1 ${msg.role === 'client' ? 'text-slate-400' : 'opacity-60'}`}>
+                            {new Date(msg.occurred_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </TabsContent>
+
+            {/* ── JORNADA DO LEAD ───────────────────────────── */}
+            <TabsContent value="journey" className="mt-4">
+              {(() => {
+                const events = journeyData?.events ?? []
+                if (events.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+                      <Route className="h-8 w-8" />
+                      <p className="text-sm">Jornada ainda não registrada</p>
+                      <p className="text-xs text-slate-300">Os eventos serão gravados a partir do próximo acesso</p>
+                    </div>
+                  )
+                }
+                const eventLabels: Record<string, string> = {
+                  lead_created: 'Lead criado', triagem_entered: 'Entrou na triagem',
+                  qualified: 'Qualificado', owner_assigned: 'Executivo atribuído',
+                  first_response: 'Primeira resposta', meeting_scheduled: 'Reunião agendada',
+                  proposal_sent: 'Proposta enviada', negotiation_started: 'Negociação iniciada',
+                  won: 'Ganho 🎉', lost: 'Perdido', stage_changed: 'Estágio alterado',
+                  rica_message: 'Mensagem Rica', activity_logged: 'Atividade registrada',
+                  task_created: 'Tarefa criada', task_completed: 'Tarefa concluída',
+                  file_uploaded: 'Arquivo anexado', email_sent: 'E-mail enviado',
+                  email_received: 'E-mail recebido',
+                }
+                const actorColors: Record<string, string> = {
+                  user: 'bg-indigo-100 text-indigo-700', rica: 'bg-violet-100 text-violet-700',
+                  automation: 'bg-amber-100 text-amber-700', system: 'bg-slate-100 text-slate-500',
+                }
+                return (
+                  <div className="relative max-h-80 overflow-y-auto pr-1">
+                    <div className="absolute left-3.5 top-0 bottom-0 w-px bg-slate-200" />
+                    <div className="space-y-0">
+                      {events.map((ev, idx) => (
+                        <div key={ev.id} className="flex gap-3 relative">
+                          <div className={`h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs z-10 ${
+                            ev.event_type === 'won' ? 'bg-emerald-100 text-emerald-700' :
+                            ev.event_type === 'lost' ? 'bg-red-100 text-red-700' :
+                            'bg-white border-2 border-slate-200 text-slate-500'
+                          }`}>
+                            {idx + 1}
+                          </div>
+                          <div className="pb-4 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-slate-700">
+                                {eventLabels[ev.event_type] ?? ev.event_type}
+                              </span>
+                              {ev.actor_type && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${actorColors[ev.actor_type] ?? 'bg-slate-100 text-slate-500'}`}>
+                                  {ev.actor_name ?? ev.actor_type}
+                                </span>
+                              )}
+                              <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">
+                                {new Date(ev.occurred_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            {ev.to_value && typeof ev.to_value === 'object' && 'stage_name' in ev.to_value && (
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {ev.from_value && typeof ev.from_value === 'object' && 'stage_name' in ev.from_value
+                                  ? `${(ev.from_value as Record<string, string>).stage_name} → ${(ev.to_value as Record<string, string>).stage_name}`
+                                  : `→ ${(ev.to_value as Record<string, string>).stage_name}`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </TabsContent>
+
+            {/* ── HISTÓRICO DE ALTERAÇÕES ───────────────────── */}
+            <TabsContent value="history" className="mt-4">
+              {(() => {
+                const entries = auditData?.audit ?? []
+                if (entries.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+                      <History className="h-8 w-8" />
+                      <p className="text-sm">Nenhuma alteração registrada</p>
+                      <p className="text-xs text-slate-300">O histórico começa a ser gravado a partir da próxima alteração</p>
+                    </div>
+                  )
+                }
+                const fieldLabels: Record<string, string> = {
+                  title: 'Título', value: 'Valor', pipeline_stage_id: 'Estágio',
+                  owner_id: 'Responsável', status: 'Status', temperature: 'Temperatura',
+                  expected_close_date: 'Fechamento previsto', probability: 'Probabilidade',
+                  source: 'Origem', lost_reason: 'Motivo de perda',
+                }
+                const actionLabels: Record<string, string> = {
+                  created: 'Criou o deal', updated: 'Alterou', stage_changed: 'Mudou o estágio',
+                  owner_assigned: 'Atribuiu executivo', activity_added: 'Registrou atividade',
+                  message_received: 'Mensagem recebida', status_changed: 'Alterou status',
+                }
+                return (
+                  <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+                    {entries.map(entry => (
+                      <div key={entry.id} className="flex items-start gap-3 py-2 border-b border-slate-50 last:border-0">
+                        <div className={`h-6 w-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
+                          entry.actor_type === 'rica' ? 'bg-violet-100 text-violet-700' :
+                          entry.actor_type === 'automation' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>
+                          {(entry.actor_name ?? entry.actor_type ?? 'S')[0].toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-700">
+                            <span className="font-medium">{entry.actor_name ?? entry.actor_type}</span>
+                            {' '}
+                            {entry.action === 'updated' && entry.field
+                              ? `alterou ${fieldLabels[entry.field] ?? entry.field}`
+                              : actionLabels[entry.action] ?? entry.action}
+                          </p>
+                          {entry.action === 'updated' && entry.old_value != null && entry.new_value != null && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {String(typeof entry.old_value === 'object' && entry.old_value !== null && 'name' in (entry.old_value as object)
+                                ? (entry.old_value as Record<string, unknown>).name
+                                : entry.old_value)
+                              }
+                              {' → '}
+                              {String(typeof entry.new_value === 'object' && entry.new_value !== null && 'name' in (entry.new_value as object)
+                                ? (entry.new_value as Record<string, unknown>).name
+                                : entry.new_value)
+                              }
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap flex-shrink-0">
+                          {new Date(entry.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </TabsContent>
+
+            {/* ── TAREFAS ───────────────────────────────────── */}
+            <TabsContent value="tasks" className="mt-4">
+              <div className="space-y-3">
+                {/* List */}
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {(dealTasksData?.tasks ?? []).map((task: Task) => (
+                    <div key={task.id} className="flex items-start gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white group">
+                      <button
+                        onClick={() => updateTaskStatusMutation.mutate({
+                          taskId: task.id,
+                          status: task.status === 'done' ? 'todo' : 'done',
+                        })}
+                        className={`mt-0.5 h-4 w-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                          task.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'
+                        }`}
+                      >
+                        {task.status === 'done' && <Check className="h-2.5 w-2.5" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium ${task.status === 'done' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                          {task.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {task.assignee_name && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                              <User className="h-2.5 w-2.5" />{task.assignee_name}
+                            </span>
+                          )}
+                          {task.due_date && (
+                            <span className={`text-[10px] flex items-center gap-0.5 ${
+                              new Date(task.due_date) < new Date() && task.status !== 'done' ? 'text-red-500' : 'text-slate-400'
+                            }`}>
+                              <CalendarDays className="h-2.5 w-2.5" />
+                              {new Date(task.due_date).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 capitalize">{task.priority}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(dealTasksData?.tasks ?? []).length === 0 && !showNewTask && (
+                    <div className="text-center py-6 text-slate-400">
+                      <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma tarefa vinculada</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* New task form */}
+                {showNewTask ? (
+                  <div className="border border-slate-200 rounded-md p-3 space-y-2 bg-slate-50">
+                    <Input
+                      placeholder="Título da tarefa *"
+                      value={newTask.title}
+                      onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))}
+                      className="text-xs h-8"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="date"
+                        value={newTask.due_date}
+                        onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))}
+                        className="text-xs h-8"
+                      />
+                      <Select value={newTask.priority} onValueChange={v => setNewTask(p => ({ ...p, priority: v }))}>
+                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Baixa</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                          <SelectItem value="urgent">Urgente</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowNewTask(false)}>Cancelar</Button>
+                      <Button
+                        size="sm" className="h-7 text-xs"
+                        disabled={!newTask.title.trim() || addTaskMutation.isPending}
+                        onClick={() => addTaskMutation.mutate({
+                          title: newTask.title,
+                          due_date: newTask.due_date || undefined,
+                          priority: newTask.priority,
+                        })}
+                      >
+                        {addTaskMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Salvar'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={() => setShowNewTask(true)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Nova Tarefa
+                  </Button>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ── ARQUIVOS ──────────────────────────────────── */}
+            <TabsContent value="files" className="mt-4">
+              <div className="space-y-3">
+                {/* File list */}
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {(dealFilesData?.files ?? []).map((f: DealFile) => (
+                    <div key={f.id} className="flex items-center gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white group">
+                      <Paperclip className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-700 truncate">{f.file_name}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {f.category}
+                          {f.file_size ? ` · ${(f.file_size / 1024).toFixed(0)} KB` : ''}
+                          {' · '}{new Date(f.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6"
+                          onClick={() => handleDownloadFile(f.id)}
+                          title="Download"
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-600"
+                          onClick={() => { if (confirm('Remover arquivo?')) deleteFileMutation.mutate(f.id) }}
+                          title="Remover"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {(dealFilesData?.files ?? []).length === 0 && (
+                    <div className="text-center py-6 text-slate-400">
+                      <Paperclip className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhum arquivo anexado</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Upload */}
+                <label className={`flex items-center justify-center gap-2 w-full h-9 border border-dashed border-slate-300 rounded-md text-xs text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700 transition-colors ${fileUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  {fileUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {fileUploading ? 'Enviando…' : 'Anexar arquivo (máx. 20 MB)'}
+                  <input type="file" className="sr-only" onChange={handleFileUpload} disabled={fileUploading} />
+                </label>
+              </div>
+            </TabsContent>
+
+            {/* ── PROPOSTAS ─────────────────────────────────── */}
+            <TabsContent value="proposals" className="mt-4">
+              <div className="space-y-3">
+                {/* List */}
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                  {(dealProposalsData?.proposals ?? []).map((p: DealProposal) => (
+                    <div key={p.id} className="flex items-center gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white">
+                      <FileSignature className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-700 truncate">{p.title}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {p.template_name ?? 'Template removido'} · {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`text-[9px] h-4 px-1.5 ${
+                          p.status === 'ready' ? 'border-green-300 text-green-700 bg-green-50' :
+                          p.status === 'generating' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                          p.status === 'sent' ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                          'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {p.status === 'ready' ? 'Pronta' : p.status === 'generating' ? 'Gerando…' : p.status === 'sent' ? 'Enviada' : 'Rascunho'}
+                      </Badge>
+                      {p.status === 'ready' && p.file_id && (
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-700"
+                          onClick={() => handleDownloadFile(p.file_id!)}
+                          title="Baixar PDF"
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {p.status === 'generating' && <Loader2 className="h-3 w-3 animate-spin text-amber-500" />}
+                    </div>
+                  ))}
+                  {(dealProposalsData?.proposals ?? []).length === 0 && (
+                    <div className="text-center py-6 text-slate-400">
+                      <FileSignature className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma proposta gerada</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Generate form */}
+                <div className="border border-slate-200 rounded-md p-3 space-y-2 bg-slate-50">
+                  <p className="text-xs font-semibold text-slate-600">Gerar nova proposta</p>
+                  <Select value={selectedTemplateId} onValueChange={id => {
+                    setSelectedTemplateId(id)
+                    const tmpl = proposalTemplatesData?.templates?.find((t: ProposalTemplate) => t.id === id)
+                    if (tmpl) {
+                      const defaults: Record<string, string> = {}
+                      tmpl.variables.forEach((v: { key: string; default?: string }) => { if (v.default) defaults[v.key] = v.default })
+                      setProposalVars(defaults)
+                    }
+                  }}>
+                    <SelectTrigger className="text-xs h-8"><SelectValue placeholder="Selecionar template…" /></SelectTrigger>
+                    <SelectContent>
+                      {(proposalTemplatesData?.templates ?? []).map((t: ProposalTemplate) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedTemplateId && (() => {
+                    const tmpl = proposalTemplatesData?.templates?.find((t: ProposalTemplate) => t.id === selectedTemplateId)
+                    if (!tmpl || !tmpl.variables?.length) return null
+                    return (
+                      <div className="space-y-1.5">
+                        <Input
+                          placeholder="Título da proposta (opcional)"
+                          value={proposalTitle}
+                          onChange={e => setProposalTitle(e.target.value)}
+                          className="text-xs h-8"
+                        />
+                        {tmpl.variables.map((v: { key: string; label: string; default?: string }) => (
+                          <Input
+                            key={v.key}
+                            placeholder={v.label}
+                            value={proposalVars[v.key] ?? ''}
+                            onChange={e => setProposalVars(p => ({ ...p, [v.key]: e.target.value }))}
+                            className="text-xs h-8"
+                          />
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  <Button
+                    size="sm" className="w-full h-8 text-xs"
+                    disabled={!selectedTemplateId || generatingProposal || generateProposalMutation.isPending}
+                    onClick={() => { setGeneratingProposal(true); generateProposalMutation.mutate() }}
+                  >
+                    {generatingProposal || generateProposalMutation.isPending
+                      ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" />Gerando PDF…</>
+                      : <><FileSignature className="h-3.5 w-3.5 mr-1.5" />Gerar Proposta</>
+                    }
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
           </Tabs>
         </div>
       </DialogContent>
