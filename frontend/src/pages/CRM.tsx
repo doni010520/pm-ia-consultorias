@@ -9,6 +9,7 @@ import {
   FileText, Lightbulb, Send, Edit3, Check, User,
   Filter, Pencil, BarChart3, Target, AlertTriangle,
   Bot, History, Route, ChevronUp, ArrowDownUp,
+  Paperclip, CheckSquare, FileSignature, Download, Loader2,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -26,7 +27,7 @@ import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 import type {
-  Deal, PipelineStage, CrmStats,
+  Deal, PipelineStage, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
 } from '@/types'
 
 // ============================================
@@ -1565,6 +1566,90 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
     enabled: activeTab === 'history',
   })
 
+  const { data: dealTasksData, refetch: refetchTasks } = useQuery({
+    queryKey: ['crm-deal-tasks', dealId],
+    queryFn: () => crmApi.deals.tasks.list(dealId),
+    enabled: activeTab === 'tasks',
+  })
+
+  const { data: dealFilesData, refetch: refetchFiles } = useQuery({
+    queryKey: ['crm-deal-files', dealId],
+    queryFn: () => crmApi.deals.files.list(dealId),
+    enabled: activeTab === 'files',
+  })
+
+  const { data: dealProposalsData, refetch: refetchProposals } = useQuery({
+    queryKey: ['crm-deal-proposals', dealId],
+    queryFn: () => crmApi.deals.proposals.list(dealId),
+    enabled: activeTab === 'proposals',
+  })
+
+  const { data: proposalTemplatesData } = useQuery({
+    queryKey: ['crm-proposal-templates'],
+    queryFn: () => crmApi.proposalTemplates.list(),
+    enabled: activeTab === 'proposals',
+  })
+
+  // New task form
+  const [newTask, setNewTask] = useState({ title: '', assignee_id: '', due_date: '', priority: 'normal' })
+  const [showNewTask, setShowNewTask] = useState(false)
+  const [fileUploading, setFileUploading] = useState(false)
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [proposalTitle, setProposalTitle] = useState('')
+  const [proposalVars, setProposalVars] = useState<Record<string, string>>({})
+  const [generatingProposal, setGeneratingProposal] = useState(false)
+
+  const addTaskMutation = useMutation({
+    mutationFn: (d: Record<string, unknown>) => crmApi.deals.tasks.create(dealId, d),
+    onSuccess: () => { refetchTasks(); setNewTask({ title: '', assignee_id: '', due_date: '', priority: 'normal' }); setShowNewTask(false) },
+  })
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
+      fetch(`/api/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('pm-ia-token')}` },
+        body: JSON.stringify({ status }),
+      }).then(r => r.json()),
+    onSuccess: () => refetchTasks(),
+  })
+
+  const deleteFileMutation = useMutation({
+    mutationFn: (fileId: string) => crmApi.deals.files.delete(dealId, fileId),
+    onSuccess: () => refetchFiles(),
+  })
+
+  const generateProposalMutation = useMutation({
+    mutationFn: () => crmApi.deals.proposals.create(dealId, {
+      template_id: selectedTemplateId,
+      title: proposalTitle || undefined,
+      variable_values: proposalVars,
+    }),
+    onSuccess: () => { refetchProposals(); setSelectedTemplateId(''); setProposalTitle(''); setProposalVars({}); setGeneratingProposal(false) },
+    onError: () => setGeneratingProposal(false),
+  })
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('category', 'other')
+      await crmApi.deals.files.upload(dealId, fd)
+      refetchFiles()
+    } finally {
+      setFileUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleDownloadFile = async (fileId: string) => {
+    const { url } = await crmApi.deals.files.download(dealId, fileId)
+    window.open(url, '_blank')
+  }
+
   const updateMutation = useMutation({
     mutationFn: (updateData: Record<string, unknown>) => crmApi.deals.update(dealId, updateData),
     onSuccess: () => {
@@ -1943,6 +2028,9 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
             <TabsList className="flex-wrap h-auto gap-1">
               <TabsTrigger value="activities" className="text-xs"><Activity className="h-3.5 w-3.5 mr-1" />Atividades</TabsTrigger>
               <TabsTrigger value="contacts" className="text-xs"><Users className="h-3.5 w-3.5 mr-1" />Contatos</TabsTrigger>
+              <TabsTrigger value="tasks" className="text-xs"><CheckSquare className="h-3.5 w-3.5 mr-1" />Tarefas</TabsTrigger>
+              <TabsTrigger value="files" className="text-xs"><Paperclip className="h-3.5 w-3.5 mr-1" />Arquivos</TabsTrigger>
+              <TabsTrigger value="proposals" className="text-xs"><FileSignature className="h-3.5 w-3.5 mr-1" />Propostas</TabsTrigger>
               <TabsTrigger value="rica" className="text-xs"><Bot className="h-3.5 w-3.5 mr-1" />Conversa Rica</TabsTrigger>
               <TabsTrigger value="journey" className="text-xs"><Route className="h-3.5 w-3.5 mr-1" />Jornada</TabsTrigger>
               <TabsTrigger value="history" className="text-xs"><History className="h-3.5 w-3.5 mr-1" />Histórico</TabsTrigger>
@@ -2276,6 +2364,259 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                 )
               })()}
             </TabsContent>
+
+            {/* ── TAREFAS ───────────────────────────────────── */}
+            <TabsContent value="tasks" className="mt-4">
+              <div className="space-y-3">
+                {/* List */}
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {(dealTasksData?.tasks ?? []).map((task: Task) => (
+                    <div key={task.id} className="flex items-start gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white group">
+                      <button
+                        onClick={() => updateTaskStatusMutation.mutate({
+                          taskId: task.id,
+                          status: task.status === 'done' ? 'todo' : 'done',
+                        })}
+                        className={`mt-0.5 h-4 w-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                          task.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'
+                        }`}
+                      >
+                        {task.status === 'done' && <Check className="h-2.5 w-2.5" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium ${task.status === 'done' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                          {task.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {task.assignee_name && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                              <User className="h-2.5 w-2.5" />{task.assignee_name}
+                            </span>
+                          )}
+                          {task.due_date && (
+                            <span className={`text-[10px] flex items-center gap-0.5 ${
+                              new Date(task.due_date) < new Date() && task.status !== 'done' ? 'text-red-500' : 'text-slate-400'
+                            }`}>
+                              <CalendarDays className="h-2.5 w-2.5" />
+                              {new Date(task.due_date).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 capitalize">{task.priority}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(dealTasksData?.tasks ?? []).length === 0 && !showNewTask && (
+                    <div className="text-center py-6 text-slate-400">
+                      <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma tarefa vinculada</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* New task form */}
+                {showNewTask ? (
+                  <div className="border border-slate-200 rounded-md p-3 space-y-2 bg-slate-50">
+                    <Input
+                      placeholder="Título da tarefa *"
+                      value={newTask.title}
+                      onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))}
+                      className="text-xs h-8"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="date"
+                        value={newTask.due_date}
+                        onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))}
+                        className="text-xs h-8"
+                      />
+                      <Select value={newTask.priority} onValueChange={v => setNewTask(p => ({ ...p, priority: v }))}>
+                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Baixa</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                          <SelectItem value="urgent">Urgente</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowNewTask(false)}>Cancelar</Button>
+                      <Button
+                        size="sm" className="h-7 text-xs"
+                        disabled={!newTask.title.trim() || addTaskMutation.isPending}
+                        onClick={() => addTaskMutation.mutate({
+                          title: newTask.title,
+                          due_date: newTask.due_date || undefined,
+                          priority: newTask.priority,
+                        })}
+                      >
+                        {addTaskMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Salvar'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={() => setShowNewTask(true)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Nova Tarefa
+                  </Button>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ── ARQUIVOS ──────────────────────────────────── */}
+            <TabsContent value="files" className="mt-4">
+              <div className="space-y-3">
+                {/* File list */}
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {(dealFilesData?.files ?? []).map((f: DealFile) => (
+                    <div key={f.id} className="flex items-center gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white group">
+                      <Paperclip className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-700 truncate">{f.file_name}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {f.category}
+                          {f.file_size ? ` · ${(f.file_size / 1024).toFixed(0)} KB` : ''}
+                          {' · '}{new Date(f.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6"
+                          onClick={() => handleDownloadFile(f.id)}
+                          title="Download"
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-600"
+                          onClick={() => { if (confirm('Remover arquivo?')) deleteFileMutation.mutate(f.id) }}
+                          title="Remover"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {(dealFilesData?.files ?? []).length === 0 && (
+                    <div className="text-center py-6 text-slate-400">
+                      <Paperclip className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhum arquivo anexado</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Upload */}
+                <label className={`flex items-center justify-center gap-2 w-full h-9 border border-dashed border-slate-300 rounded-md text-xs text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700 transition-colors ${fileUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  {fileUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {fileUploading ? 'Enviando…' : 'Anexar arquivo (máx. 20 MB)'}
+                  <input type="file" className="sr-only" onChange={handleFileUpload} disabled={fileUploading} />
+                </label>
+              </div>
+            </TabsContent>
+
+            {/* ── PROPOSTAS ─────────────────────────────────── */}
+            <TabsContent value="proposals" className="mt-4">
+              <div className="space-y-3">
+                {/* List */}
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                  {(dealProposalsData?.proposals ?? []).map((p: DealProposal) => (
+                    <div key={p.id} className="flex items-center gap-2 p-2 rounded-md border border-slate-100 hover:border-slate-200 bg-white">
+                      <FileSignature className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-700 truncate">{p.title}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {p.template_name ?? 'Template removido'} · {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`text-[9px] h-4 px-1.5 ${
+                          p.status === 'ready' ? 'border-green-300 text-green-700 bg-green-50' :
+                          p.status === 'generating' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                          p.status === 'sent' ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                          'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {p.status === 'ready' ? 'Pronta' : p.status === 'generating' ? 'Gerando…' : p.status === 'sent' ? 'Enviada' : 'Rascunho'}
+                      </Badge>
+                      {p.status === 'ready' && p.file_id && (
+                        <Button
+                          variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-700"
+                          onClick={() => handleDownloadFile(p.file_id!)}
+                          title="Baixar PDF"
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {p.status === 'generating' && <Loader2 className="h-3 w-3 animate-spin text-amber-500" />}
+                    </div>
+                  ))}
+                  {(dealProposalsData?.proposals ?? []).length === 0 && (
+                    <div className="text-center py-6 text-slate-400">
+                      <FileSignature className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma proposta gerada</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Generate form */}
+                <div className="border border-slate-200 rounded-md p-3 space-y-2 bg-slate-50">
+                  <p className="text-xs font-semibold text-slate-600">Gerar nova proposta</p>
+                  <Select value={selectedTemplateId} onValueChange={id => {
+                    setSelectedTemplateId(id)
+                    const tmpl = proposalTemplatesData?.templates?.find((t: ProposalTemplate) => t.id === id)
+                    if (tmpl) {
+                      const defaults: Record<string, string> = {}
+                      tmpl.variables.forEach((v: { key: string; default?: string }) => { if (v.default) defaults[v.key] = v.default })
+                      setProposalVars(defaults)
+                    }
+                  }}>
+                    <SelectTrigger className="text-xs h-8"><SelectValue placeholder="Selecionar template…" /></SelectTrigger>
+                    <SelectContent>
+                      {(proposalTemplatesData?.templates ?? []).map((t: ProposalTemplate) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedTemplateId && (() => {
+                    const tmpl = proposalTemplatesData?.templates?.find((t: ProposalTemplate) => t.id === selectedTemplateId)
+                    if (!tmpl || !tmpl.variables?.length) return null
+                    return (
+                      <div className="space-y-1.5">
+                        <Input
+                          placeholder="Título da proposta (opcional)"
+                          value={proposalTitle}
+                          onChange={e => setProposalTitle(e.target.value)}
+                          className="text-xs h-8"
+                        />
+                        {tmpl.variables.map((v: { key: string; label: string; default?: string }) => (
+                          <Input
+                            key={v.key}
+                            placeholder={v.label}
+                            value={proposalVars[v.key] ?? ''}
+                            onChange={e => setProposalVars(p => ({ ...p, [v.key]: e.target.value }))}
+                            className="text-xs h-8"
+                          />
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  <Button
+                    size="sm" className="w-full h-8 text-xs"
+                    disabled={!selectedTemplateId || generatingProposal || generateProposalMutation.isPending}
+                    onClick={() => { setGeneratingProposal(true); generateProposalMutation.mutate() }}
+                  >
+                    {generatingProposal || generateProposalMutation.isPending
+                      ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" />Gerando PDF…</>
+                      : <><FileSignature className="h-3.5 w-3.5 mr-1.5" />Gerar Proposta</>
+                    }
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
           </Tabs>
         </div>
       </DialogContent>

@@ -1,9 +1,13 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { query } from '../services/database.js';
 import * as leadJourney from '../services/leadJourney.js';
 import * as dealAudit from '../services/dealAudit.js';
 
 const router = Router();
+
+// Multer: store uploads in memory (buffer), max 20 MB
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Helper: get org id from either JWT auth or N8N fallback
 function getOrgId(req) {
@@ -2344,4 +2348,392 @@ router.get('/deals/:id/audit', async (req, res, next) => {
   }
 });
 
+// ============================================
+// DEAL TASKS (Tarefas vinculadas ao deal)
+// ============================================
+
+/**
+ * GET /api/crm/deals/:id/tasks
+ * Lista tarefas vinculadas a um deal.
+ */
+router.get('/deals/:id/tasks', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.query;
+
+    let sql = `
+      SELECT t.*, u.name as assignee_name
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.assignee_id
+      WHERE t.deal_id = $1`;
+    const params = [id];
+
+    if (status) {
+      sql += ' AND t.status = $2';
+      params.push(status);
+    }
+    sql += ' ORDER BY t.created_at DESC';
+
+    const result = await query(sql, params);
+    res.json({ tasks: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/tasks
+ * Cria uma tarefa vinculada a um deal.
+ */
+router.post('/deals/:id/tasks', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { title, description, assignee_id, due_date, priority, organization_id } = req.body;
+
+    if (!title) return res.status(400).json({ error: { message: 'Título é obrigatório' } });
+
+    // Resolve org_id from deal if not provided
+    let orgId = organization_id;
+    if (!orgId) {
+      const { rows } = await query('SELECT organization_id FROM deals WHERE id = $1', [id]);
+      if (!rows.length) return res.status(404).json({ error: { message: 'Deal não encontrado' } });
+      orgId = rows[0].organization_id;
+    }
+
+    const { rows } = await query(
+      `INSERT INTO tasks (organization_id, deal_id, title, description, assignee_id, due_date, priority, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'crm')
+       RETURNING *`,
+      [orgId, id, title, description || null, assignee_id || null, due_date || null, priority || 'normal']
+    );
+
+    const task = rows[0];
+
+    // Fire journey event (fire-and-forget)
+    import('../services/leadJourney.js').then(({ recordEvent }) => {
+      const dealRow = query('SELECT organization_id FROM deals WHERE id = $1', [id])
+        .then(r => r.rows[0])
+        .catch(() => null);
+      dealRow.then(d => {
+        if (!d) return;
+        recordEvent({
+          dealId: id,
+          organizationId: d.organization_id,
+          eventType: 'task_created',
+          actorUserId: req.user?.id,
+          actorType: 'user',
+          metadata: { task_id: task.id, title, due_date }
+        }).catch(() => {});
+      });
+    }).catch(() => {});
+
+    res.status(201).json({ task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// DEAL FILES (Upload de arquivos)
+// ============================================
+
+/**
+ * POST /api/crm/deals/:id/files
+ * Upload de arquivo para um deal. Espera multipart/form-data.
+ * Campos: file (binary), category, description
+ */
+router.post('/deals/:id/files', upload.single('file'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Validate deal exists and get org
+    const { rows: dealRows } = await query('SELECT organization_id FROM deals WHERE id = $1', [id]);
+    if (!dealRows.length) return res.status(404).json({ error: { message: 'Deal não encontrado' } });
+    const orgId = dealRows[0].organization_id;
+
+    // multer puts file in req.file
+    if (!req.file) return res.status(400).json({ error: { message: 'Arquivo não enviado' } });
+
+    const { originalname, mimetype, size, buffer } = req.file;
+    const category = req.body.category || 'other';
+    const description = req.body.description || null;
+
+    const { uploadFile } = await import('../services/storage.js');
+    const { storagePath } = await uploadFile({
+      orgId,
+      dealId: id,
+      originalName: originalname,
+      buffer,
+      mimeType: mimetype
+    });
+
+    const { rows } = await query(
+      `INSERT INTO deal_files (deal_id, organization_id, uploaded_by, file_name, file_size, mime_type, storage_path, category, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [id, orgId, req.user?.id || null, originalname, size, mimetype, storagePath, category, description]
+    );
+
+    res.status(201).json({ file: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/deals/:id/files
+ * Lista arquivos de um deal.
+ */
+router.get('/deals/:id/files', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `SELECT df.*, u.name as uploaded_by_name
+       FROM deal_files df
+       LEFT JOIN users u ON u.id = df.uploaded_by
+       WHERE df.deal_id = $1
+       ORDER BY df.created_at DESC`,
+      [id]
+    );
+    res.json({ files: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/deals/:id/files/:fileId/download
+ * Retorna URL assinada para download do arquivo.
+ */
+router.get('/deals/:id/files/:fileId/download', async (req, res, next) => {
+  try {
+    const { id, fileId } = req.params;
+    const { rows } = await query(
+      'SELECT * FROM deal_files WHERE id = $1 AND deal_id = $2',
+      [fileId, id]
+    );
+    if (!rows.length) return res.status(404).json({ error: { message: 'Arquivo não encontrado' } });
+
+    const { getSignedUrl } = await import('../services/storage.js');
+    const url = await getSignedUrl(rows[0].storage_path, 3600);
+    res.json({ url, expires_in: 3600 });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/crm/deals/:id/files/:fileId
+ * Remove arquivo do deal e do Storage.
+ */
+router.delete('/deals/:id/files/:fileId', async (req, res, next) => {
+  try {
+    const { id, fileId } = req.params;
+    const { rows } = await query(
+      'SELECT * FROM deal_files WHERE id = $1 AND deal_id = $2',
+      [fileId, id]
+    );
+    if (!rows.length) return res.status(404).json({ error: { message: 'Arquivo não encontrado' } });
+
+    const { removeFile } = await import('../services/storage.js');
+    await removeFile(rows[0].storage_path).catch(() => {}); // soft-fail if already gone
+
+    await query('DELETE FROM deal_files WHERE id = $1', [fileId]);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// PROPOSAL TEMPLATES
+// ============================================
+
+/**
+ * GET /api/crm/proposal-templates
+ */
+router.get('/proposal-templates', async (req, res, next) => {
+  try {
+    const orgId = req.query.organization_id || process.env.DEFAULT_ORGANIZATION_ID;
+    const result = await query(
+      `SELECT pt.*, u.name as created_by_name
+       FROM proposal_templates pt
+       LEFT JOIN users u ON u.id = pt.created_by
+       WHERE pt.organization_id = $1
+       ORDER BY pt.created_at DESC`,
+      [orgId]
+    );
+    res.json({ templates: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/proposal-templates
+ */
+router.post('/proposal-templates', async (req, res, next) => {
+  try {
+    const { organization_id, name, description, body_markdown, variables } = req.body;
+    if (!name || !body_markdown) {
+      return res.status(400).json({ error: { message: 'name e body_markdown são obrigatórios' } });
+    }
+    const orgId = organization_id || process.env.DEFAULT_ORGANIZATION_ID;
+    const { rows } = await query(
+      `INSERT INTO proposal_templates (organization_id, created_by, name, description, body_markdown, variables)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [orgId, req.user?.id || null, name, description || null, body_markdown, JSON.stringify(variables || [])]
+    );
+    res.status(201).json({ template: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PUT /api/crm/proposal-templates/:id
+ */
+router.put('/proposal-templates/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, description, body_markdown, variables, is_active } = req.body;
+
+    const sets = [];
+    const params = [];
+    let pi = 1;
+
+    if (name !== undefined)          { sets.push(`name = $${pi++}`);           params.push(name); }
+    if (description !== undefined)   { sets.push(`description = $${pi++}`);    params.push(description); }
+    if (body_markdown !== undefined) { sets.push(`body_markdown = $${pi++}`);  params.push(body_markdown); }
+    if (variables !== undefined)     { sets.push(`variables = $${pi++}`);      params.push(JSON.stringify(variables)); }
+    if (is_active !== undefined)     { sets.push(`is_active = $${pi++}`);      params.push(is_active); }
+
+    if (!sets.length) return res.status(400).json({ error: { message: 'Nenhum campo para atualizar' } });
+    sets.push(`updated_at = NOW()`);
+    params.push(id);
+
+    const { rows } = await query(
+      `UPDATE proposal_templates SET ${sets.join(', ')} WHERE id = $${pi} RETURNING *`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: { message: 'Template não encontrado' } });
+    res.json({ template: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/crm/proposal-templates/:id
+ */
+router.delete('/proposal-templates/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM proposal_templates WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// DEAL PROPOSALS
+// ============================================
+
+/**
+ * GET /api/crm/deals/:id/proposals
+ */
+router.get('/deals/:id/proposals', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `SELECT dp.*, pt.name as template_name, u.name as created_by_name,
+              df.file_name, df.storage_path
+       FROM deal_proposals dp
+       LEFT JOIN proposal_templates pt ON pt.id = dp.template_id
+       LEFT JOIN users u ON u.id = dp.created_by
+       LEFT JOIN deal_files df ON df.id = dp.file_id
+       WHERE dp.deal_id = $1
+       ORDER BY dp.created_at DESC`,
+      [id]
+    );
+    res.json({ proposals: result.rows, count: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/proposals
+ * Gera PDF a partir de um template e salva.
+ * Body: { template_id, title, variable_values }
+ */
+router.post('/deals/:id/proposals', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { template_id, title, variable_values } = req.body;
+
+    if (!template_id) return res.status(400).json({ error: { message: 'template_id é obrigatório' } });
+
+    // Load deal + template
+    const [dealRes, tmplRes] = await Promise.all([
+      query('SELECT organization_id, contact_name FROM deals WHERE id = $1', [id]),
+      query('SELECT * FROM proposal_templates WHERE id = $1', [template_id])
+    ]);
+    if (!dealRes.rows.length)  return res.status(404).json({ error: { message: 'Deal não encontrado' } });
+    if (!tmplRes.rows.length)  return res.status(404).json({ error: { message: 'Template não encontrado' } });
+
+    const deal = dealRes.rows[0];
+    const tmpl = tmplRes.rows[0];
+    const proposalTitle = title || `Proposta - ${deal.contact_name || 'Cliente'}`;
+
+    // Insert proposal as "generating"
+    const { rows: insRows } = await query(
+      `INSERT INTO deal_proposals (deal_id, organization_id, template_id, created_by, title, variable_values, rendered_markdown, status)
+       VALUES ($1, $2, $3, $4, $5, $6, '', 'generating')
+       RETURNING *`,
+      [id, deal.organization_id, template_id, req.user?.id || null, proposalTitle, JSON.stringify(variable_values || {})]
+    );
+    const proposal = insRows[0];
+
+    // Generate async (don't block response)
+    (async () => {
+      try {
+        const { renderAndUpload } = await import('../services/proposals.js');
+        const { storagePath, renderedMarkdown, fileName } = await renderAndUpload({
+          orgId: deal.organization_id,
+          dealId: id,
+          templateMarkdown: tmpl.body_markdown,
+          variables: variable_values || {},
+          title: proposalTitle
+        });
+
+        // Save file record
+        const { rows: fileRows } = await query(
+          `INSERT INTO deal_files (deal_id, organization_id, uploaded_by, file_name, mime_type, storage_path, category)
+           VALUES ($1, $2, $3, $4, 'application/pdf', $5, 'proposal')
+           RETURNING id`,
+          [id, deal.organization_id, req.user?.id || null, fileName, storagePath]
+        );
+        const fileId = fileRows[0].id;
+
+        await query(
+          `UPDATE deal_proposals SET status = 'ready', rendered_markdown = $1, file_id = $2, updated_at = NOW()
+           WHERE id = $3`,
+          [renderedMarkdown, fileId, proposal.id]
+        );
+      } catch (err) {
+        console.error('[proposals] generation failed:', err);
+        await query(`UPDATE deal_proposals SET status = 'draft', updated_at = NOW() WHERE id = $1`, [proposal.id]);
+      }
+    })();
+
+    res.status(202).json({ proposal, message: 'Proposta sendo gerada…' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
+

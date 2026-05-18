@@ -11,6 +11,7 @@ import {
   Clock,
   Target,
   Route,
+  FileSignature,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -20,6 +21,7 @@ import { useState } from 'react'
 const navItems = [
   { to: '/crm', icon: Target, label: 'CRM' },
   { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
+  { to: '/crm/templates', icon: FileSignature, label: 'Templates' },
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderKanban, label: 'Projetos' },
   { to: '/tasks', icon: CheckSquare, label: 'Tarefas' },

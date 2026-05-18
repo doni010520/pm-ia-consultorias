@@ -39,7 +39,8 @@ export interface ProjectMetrics {
 
 export interface Task {
   id: string
-  project_id: string
+  project_id: string | null
+  deal_id: string | null
   parent_task_id: string | null
   title: string
   description: string | null
@@ -550,6 +551,55 @@ export interface CrmStats {
     avg_days_in_stage?: number
   }>
   recent_activities: DealActivity[]
+}
+
+export interface DealFile {
+  id: string
+  deal_id: string
+  organization_id: string
+  uploaded_by: string | null
+  uploaded_by_name?: string
+  file_name: string
+  file_size: number | null
+  mime_type: string | null
+  storage_path: string
+  category: 'proposal' | 'contract' | 'presentation' | 'nda' | 'report' | 'other'
+  description: string | null
+  created_at: string
+}
+
+export interface ProposalTemplate {
+  id: string
+  organization_id: string
+  created_by: string | null
+  created_by_name?: string
+  name: string
+  description: string | null
+  body_markdown: string
+  variables: Array<{ key: string; label: string; default?: string }>
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DealProposal {
+  id: string
+  deal_id: string
+  organization_id: string
+  template_id: string | null
+  template_name?: string
+  created_by: string | null
+  created_by_name?: string
+  title: string
+  variable_values: Record<string, string>
+  rendered_markdown: string | null
+  file_id: string | null
+  file_name?: string | null
+  storage_path?: string | null
+  status: 'draft' | 'generating' | 'ready' | 'sent'
+  sent_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface TimeEntry {

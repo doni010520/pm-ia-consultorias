@@ -464,6 +464,64 @@ export const crmApi = {
       delete: (dealId: string, contactId: string) =>
         request<{ deleted: boolean }>(`/api/crm/deals/${dealId}/contacts/${contactId}`, { method: 'DELETE' }),
     },
+
+    // Deal tasks
+    tasks: {
+      list: (dealId: string, status?: string) =>
+        request<{ tasks: import('@/types').Task[]; count: number }>(
+          `/api/crm/deals/${dealId}/tasks${status ? `?status=${status}` : ''}`
+        ),
+      create: (dealId: string, data: Record<string, unknown>) =>
+        request<{ task: import('@/types').Task }>(`/api/crm/deals/${dealId}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+    },
+
+    // Deal files
+    files: {
+      list: (dealId: string) =>
+        request<{ files: import('@/types').DealFile[]; count: number }>(`/api/crm/deals/${dealId}/files`),
+      upload: (dealId: string, formData: FormData) =>
+        fetch(`${API_URL}/api/crm/deals/${dealId}/files`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('pm-ia-token') || ''}` },
+          body: formData,
+        }).then(async r => { if (!r.ok) throw new Error('Upload failed'); return r.json() as Promise<{ file: import('@/types').DealFile }>; }),
+      download: (dealId: string, fileId: string) =>
+        request<{ url: string; expires_in: number }>(`/api/crm/deals/${dealId}/files/${fileId}/download`),
+      delete: (dealId: string, fileId: string) =>
+        request<{ success: boolean }>(`/api/crm/deals/${dealId}/files/${fileId}`, { method: 'DELETE' }),
+    },
+
+    // Deal proposals
+    proposals: {
+      list: (dealId: string) =>
+        request<{ proposals: import('@/types').DealProposal[]; count: number }>(`/api/crm/deals/${dealId}/proposals`),
+      create: (dealId: string, data: { template_id: string; title?: string; variable_values?: Record<string, string> }) =>
+        request<{ proposal: import('@/types').DealProposal; message: string }>(`/api/crm/deals/${dealId}/proposals`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+    },
+  },
+
+  // Proposal templates
+  proposalTemplates: {
+    list: () =>
+      request<{ templates: import('@/types').ProposalTemplate[]; count: number }>(`/api/crm/proposal-templates${withOrg()}`),
+    create: (data: Record<string, unknown>) =>
+      request<{ template: import('@/types').ProposalTemplate }>('/api/crm/proposal-templates', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: ORG_ID, ...data }),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ template: import('@/types').ProposalTemplate }>(`/api/crm/proposal-templates/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/api/crm/proposal-templates/${id}`, { method: 'DELETE' }),
   },
 
   // Journey analytics

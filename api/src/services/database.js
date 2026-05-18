@@ -148,6 +148,7 @@ export async function createTask(taskData) {
   const {
     organization_id,
     project_id,
+    deal_id,
     title,
     description,
     assignee_id,
@@ -160,22 +161,24 @@ export async function createTask(taskData) {
   if (pool) {
     const result = await query(
       `INSERT INTO tasks (
-        organization_id, project_id, title, description, 
+        organization_id, project_id, deal_id, title, description,
         assignee_id, due_date, priority, source, ai_confidence
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
-      [organization_id, project_id, title, description, assignee_id, due_date, priority, source, ai_confidence]
+      [organization_id, project_id, deal_id ?? null, title, description, assignee_id, due_date, priority, source, ai_confidence]
     );
     return result.rows[0];
   }
 
   if (supabase) {
+    const insertData = { organization_id, project_id, title, description, assignee_id, due_date, priority, source, ai_confidence };
+    if (deal_id) insertData.deal_id = deal_id;
     const { data, error } = await supabase
       .from('tasks')
-      .insert(taskData)
+      .insert(insertData)
       .select()
       .single();
-    
+
     if (error) throw error;
     return data;
   }
@@ -187,7 +190,7 @@ export async function createTask(taskData) {
  * Busca tarefas com filtros
  */
 export async function getTasks(filters = {}) {
-  const { organization_id, project_id, assignee_id, status, limit = 50 } = filters;
+  const { organization_id, project_id, deal_id, assignee_id, status, limit = 50 } = filters;
 
   if (pool) {
     let sql = 'SELECT t.*, u.name as assignee_name FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id WHERE 1=1';
@@ -201,6 +204,10 @@ export async function getTasks(filters = {}) {
     if (project_id) {
       sql += ` AND t.project_id = $${paramIndex++}`;
       params.push(project_id);
+    }
+    if (deal_id) {
+      sql += ` AND t.deal_id = $${paramIndex++}`;
+      params.push(deal_id);
     }
     if (assignee_id) {
       sql += ` AND t.assignee_id = $${paramIndex++}`;
@@ -219,18 +226,19 @@ export async function getTasks(filters = {}) {
   }
 
   if (supabase) {
-    let query = supabase
+    let q = supabase
       .from('tasks')
       .select('*, assignee:users(name)')
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    if (organization_id) query = query.eq('organization_id', organization_id);
-    if (project_id) query = query.eq('project_id', project_id);
-    if (assignee_id) query = query.eq('assignee_id', assignee_id);
-    if (status) query = query.eq('status', status);
+    if (organization_id) q = q.eq('organization_id', organization_id);
+    if (project_id) q = q.eq('project_id', project_id);
+    if (deal_id) q = q.eq('deal_id', deal_id);
+    if (assignee_id) q = q.eq('assignee_id', assignee_id);
+    if (status) q = q.eq('status', status);
 
-    const { data, error } = await query;
+    const { data, error } = await q;
     if (error) throw error;
     return data;
   }
