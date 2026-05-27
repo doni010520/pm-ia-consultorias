@@ -758,6 +758,85 @@ router.get('/deals/by-phone/:phone', async (req, res, next) => {
   }
 });
 
+// ============================================
+// FOLLOW-UP ENDPOINTS (must come BEFORE /deals/:id)
+// ============================================
+
+/**
+ * GET /api/crm/deals/followup-candidates
+ * Retorna deals elegíveis para follow-up baseado em thresholds.
+ *
+ * IMPORTANTE: precisa ser registrado antes de /deals/:id, senão o
+ * Express captura 'followup-candidates' como :id e tenta cast pra UUID.
+ *
+ * Query params:
+ *   - max_followups (default: 3)
+ *
+ * Regras de cadência (horas sem resposta do cliente):
+ *   - followup_count = 0  → threshold = 2h
+ *   - followup_count = 1  → threshold = 24h
+ *   - followup_count = 2  → threshold = 72h (3 dias)
+ *   - followup_count = 3  → encerra (marca lost)
+ */
+router.get('/deals/followup-candidates', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const maxFollowups = parseInt(req.query.max_followups) || 3;
+
+    // Busca deals abertos elegiveis
+    const result = await query(
+      `SELECT
+        d.id, d.title, d.pipeline_id, d.pipeline_stage_id,
+        d.contact_id, d.contact_name, d.contact_phone,
+        d.followup_count, d.last_followup_at, d.last_client_message_at,
+        d.temperature, d.status, d.created_at, d.stage_entered_at,
+        p.name as pipeline_name,
+        ps.name as stage_name,
+        c.name as contact_full_name, c.email as contact_email,
+        co.name as company_name,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 AS hours_since_activity,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 AS hours_since_followup
+       FROM deals d
+       LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       LEFT JOIN companies co ON co.id = d.company_id
+       WHERE d.organization_id = $1
+         AND d.status = 'open'
+         AND COALESCE(d.followup_count, 0) < $2
+         AND (
+           (COALESCE(d.followup_count, 0) = 0 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 >= 2)
+           OR
+           (COALESCE(d.followup_count, 0) = 1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 24)
+           OR
+           (COALESCE(d.followup_count, 0) = 2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 72)
+         )
+       ORDER BY d.followup_count ASC, hours_since_activity DESC
+       LIMIT 50`,
+      [orgId, maxFollowups]
+    );
+
+    // Para cada deal, buscar últimos 5 insights (contexto)
+    const dealsWithContext = await Promise.all(
+      result.rows.map(async (deal) => {
+        const insights = await query(
+          `SELECT category, content, created_at
+           FROM deal_insights
+           WHERE deal_id = $1
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [deal.id]
+        );
+        return { ...deal, recent_insights: insights.rows };
+      })
+    );
+
+    res.json({ deals: dealsWithContext, total: dealsWithContext.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get deal detail with insights, activities, products, contacts
 router.get('/deals/:id', async (req, res, next) => {
   try {
@@ -1717,81 +1796,10 @@ router.post('/register-lead', async (req, res, next) => {
 });
 
 // ============================================
-// FOLLOW-UP ENDPOINTS
+// FOLLOW-UP ENDPOINTS (continuação)
+// GET /deals/followup-candidates foi movido pra antes de /deals/:id
+// pra não ser capturado pelo wildcard (cast pra UUID falhava).
 // ============================================
-
-/**
- * GET /api/crm/deals/followup-candidates
- * Retorna deals elegíveis para follow-up baseado em thresholds.
- *
- * Query params:
- *   - max_followups (default: 3) — nao envia mais que isso
- *   - business_hours_only (default: true) — filtra por horario comercial (9h-18h seg-sex)
- *
- * Regras de cadência (horas sem resposta do cliente):
- *   - followup_count = 0  → threshold = 2h
- *   - followup_count = 1  → threshold = 24h
- *   - followup_count = 2  → threshold = 72h (3 dias)
- *   - followup_count = 3  → encerra (marca lost)
- */
-router.get('/deals/followup-candidates', async (req, res, next) => {
-  try {
-    const orgId = getOrgId(req);
-    const maxFollowups = parseInt(req.query.max_followups) || 3;
-
-    // Busca deals abertos elegiveis
-    const result = await query(
-      `SELECT
-        d.id, d.title, d.pipeline_id, d.pipeline_stage_id,
-        d.contact_id, d.contact_name, d.contact_phone,
-        d.followup_count, d.last_followup_at, d.last_client_message_at,
-        d.temperature, d.status, d.created_at, d.stage_entered_at,
-        p.name as pipeline_name,
-        ps.name as stage_name,
-        c.name as contact_full_name, c.email as contact_email,
-        co.name as company_name,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 AS hours_since_activity,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 AS hours_since_followup
-       FROM deals d
-       LEFT JOIN pipelines p ON p.id = d.pipeline_id
-       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
-       LEFT JOIN contacts c ON c.id = d.contact_id
-       LEFT JOIN companies co ON co.id = d.company_id
-       WHERE d.organization_id = $1
-         AND d.status = 'open'
-         AND COALESCE(d.followup_count, 0) < $2
-         AND (
-           (COALESCE(d.followup_count, 0) = 0 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 >= 2)
-           OR
-           (COALESCE(d.followup_count, 0) = 1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 24)
-           OR
-           (COALESCE(d.followup_count, 0) = 2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 72)
-         )
-       ORDER BY d.followup_count ASC, hours_since_activity DESC
-       LIMIT 50`,
-      [orgId, maxFollowups]
-    );
-
-    // Para cada deal, buscar últimos 5 insights (contexto)
-    const dealsWithContext = await Promise.all(
-      result.rows.map(async (deal) => {
-        const insights = await query(
-          `SELECT category, content, created_at
-           FROM deal_insights
-           WHERE deal_id = $1
-           ORDER BY created_at DESC
-           LIMIT 5`,
-          [deal.id]
-        );
-        return { ...deal, recent_insights: insights.rows };
-      })
-    );
-
-    res.json({ deals: dealsWithContext, total: dealsWithContext.length });
-  } catch (error) {
-    next(error);
-  }
-});
 
 /**
  * PATCH /api/crm/deals/:id/followup
