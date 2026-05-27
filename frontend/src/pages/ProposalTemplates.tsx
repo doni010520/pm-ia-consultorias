@@ -157,15 +157,16 @@ export default function ProposalTemplates() {
   const templates = data?.templates ?? []
 
   return (
-    <PageContainer
-      title="Templates de Proposta"
-      description="Crie modelos de proposta em Markdown para geração automática de PDF"
-      actions={
+    <PageContainer>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-xl font-bold text-slate-800">Templates de Proposta</h1>
+          <p className="text-sm text-slate-500">Crie modelos de proposta em Markdown para geração automática de PDF</p>
+        </div>
         <Button onClick={() => { setEditing(null); setShowForm(true) }}>
           <Plus className="h-4 w-4 mr-2" /> Novo Template
         </Button>
-      }
-    >
+      </div>
       {isLoading ? (
         <div className="text-center py-12 text-slate-400">Carregando templates…</div>
       ) : templates.length === 0 ? (

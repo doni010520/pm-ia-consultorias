@@ -210,8 +210,8 @@ export default function LeadJourney() {
                       <XAxis type="number" tick={{ fontSize: 11 }} />
                       <YAxis dataKey="name" type="category" width={130} tick={{ fontSize: 11 }} />
                       <Tooltip
-                        formatter={(value: number, _name: string, entry) => [
-                          `${value} leads (${entry.payload.pct}%)`,
+                        formatter={(value, _name, entry) => [
+                          `${value} leads (${(entry as { payload?: { pct?: number } }).payload?.pct ?? 0}%)`,
                           'Alcançaram',
                         ]}
                       />
