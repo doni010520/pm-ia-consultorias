@@ -2020,8 +2020,8 @@ router.post('/messages', async (req, res, next) => {
     const {
       phone, direction, text, sender,
       content_type = 'text', media_url = null,
-      sent_at = null, n8n_execution_id = null,
-      workflow_name = null, raw_payload = null,
+      sent_at = null, deal_id: bodyDealId = null,
+      workflow_name = null,
     } = req.body;
 
     if (!phone || !direction) {
@@ -2033,45 +2033,46 @@ router.post('/messages', async (req, res, next) => {
 
     const cleanPhone = String(phone).replace(/\D/g, '');
 
-    // Resolve contact_id + deal_id (mais recente aberto)
-    const contactRes = await query(
-      `SELECT id FROM contacts
-       WHERE organization_id = $1
-         AND REGEXP_REPLACE(phone, '\\D', '', 'g') = $2
-       LIMIT 1`,
-      [orgId, cleanPhone]
-    );
-    const contact_id = contactRes.rows[0]?.id || null;
-
-    let deal_id = null;
-    if (contact_id) {
-      const dealRes = await query(
-        `SELECT id FROM deals
-         WHERE organization_id = $1 AND contact_id = $2 AND status = 'open'
-         ORDER BY created_at DESC LIMIT 1`,
-        [orgId, contact_id]
+    // Resolve deal_id pelo telefone se não veio no body
+    let deal_id = bodyDealId || null;
+    if (!deal_id) {
+      const contactRes = await query(
+        `SELECT c.id as contact_id, d.id as deal_id
+         FROM contacts c
+         LEFT JOIN deals d ON d.contact_id = c.id AND d.organization_id = $1 AND d.status = 'open'
+         WHERE c.organization_id = $1
+           AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
+         ORDER BY d.created_at DESC NULLS LAST
+         LIMIT 1`,
+        [orgId, cleanPhone]
       );
-      deal_id = dealRes.rows[0]?.id || null;
+      deal_id = contactRes.rows[0]?.deal_id || null;
     }
+
+    // Mapeia campos do Rica para schema real da tabela deal_messages:
+    // direction+sender → role (lead=cliente in, rica_ai=rica out)
+    const role = direction === 'in' ? (sender || 'lead') : (sender || 'rica_ai');
+    const channel = 'whatsapp';
+    const mediaType = content_type !== 'text' ? content_type : null;
 
     const result = await query(
       `INSERT INTO deal_messages
-        (organization_id, deal_id, contact_id, contact_phone, direction, sender,
-         content_type, text, media_url, n8n_execution_id, workflow_name, raw_payload, sent_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13::timestamptz, NOW()))
-       RETURNING id, sent_at`,
+        (organization_id, deal_id, role, channel, content, media_url, media_type,
+         rica_session_id, metadata, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, NOW()))
+       RETURNING id, occurred_at`,
       [
-        orgId, deal_id, contact_id, cleanPhone, direction, sender,
-        content_type, text || null, media_url, n8n_execution_id, workflow_name,
-        raw_payload ? JSON.stringify(raw_payload) : null, sent_at,
+        orgId, deal_id, role, channel, text || null, media_url, mediaType,
+        cleanPhone,
+        JSON.stringify({ direction, sender, workflow_name }),
+        sent_at,
       ]
     );
 
     res.status(201).json({
       message_id: result.rows[0].id,
-      sent_at: result.rows[0].sent_at,
+      sent_at: result.rows[0].occurred_at,
       deal_id,
-      contact_id,
     });
   } catch (error) {
     next(error);
@@ -2089,11 +2090,13 @@ router.get('/deals/:id/messages', async (req, res, next) => {
     const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
 
     const result = await query(
-      `SELECT id, direction, sender, content_type, text, media_url,
-              n8n_execution_id, workflow_name, sent_at, created_at
+      `SELECT id, role, channel, content as text, media_url, media_type,
+              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
+              metadata->>'direction' as direction,
+              metadata->>'sender' as sender
        FROM deal_messages
        WHERE deal_id = $1 AND organization_id = $2
-       ORDER BY sent_at ASC
+       ORDER BY occurred_at ASC
        LIMIT $3`,
       [id, orgId, limit]
     );
@@ -2114,12 +2117,14 @@ router.get('/contacts/by-phone/:phone/messages', async (req, res, next) => {
     const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
 
     const result = await query(
-      `SELECT id, deal_id, direction, sender, content_type, text, media_url,
-              n8n_execution_id, workflow_name, sent_at, created_at
+      `SELECT id, deal_id, role, channel, content as text, media_url, media_type,
+              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
+              metadata->>'direction' as direction,
+              metadata->>'sender' as sender
        FROM deal_messages
        WHERE organization_id = $1
-         AND REGEXP_REPLACE(contact_phone, '\\D', '', 'g') = $2
-       ORDER BY sent_at ASC
+         AND rica_session_id = $2
+       ORDER BY occurred_at ASC
        LIMIT $3`,
       [orgId, cleanPhone, limit]
     );
