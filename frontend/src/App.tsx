@@ -18,6 +18,8 @@ import Team from '@/pages/Team'
 import Capacity from '@/pages/Capacity'
 import CapacityCalendar from '@/pages/CapacityCalendar'
 import CRM from '@/pages/CRM'
+import LeadJourney from '@/pages/LeadJourney'
+import ProposalTemplates from '@/pages/ProposalTemplates'
 import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
 
@@ -67,6 +69,8 @@ function ProtectedLayout() {
           <Route path="/capacity" element={<CapacityCalendar />} />
           <Route path="/capacity/simple" element={<Capacity />} />
           <Route path="/crm" element={<CRM />} />
+          <Route path="/crm/journey" element={<LeadJourney />} />
+          <Route path="/crm/templates" element={<ProposalTemplates />} />
         </Routes>
       </div>
     </div>
