@@ -12,6 +12,7 @@ import {
   Target,
   Route,
   FileSignature,
+  Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { useState } from 'react'
 
 const navItems = [
+  { to: '/rica', icon: Bot, label: 'Rica AI' },
   { to: '/crm', icon: Target, label: 'CRM' },
   { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
   { to: '/crm/templates', icon: FileSignature, label: 'Templates' },
