@@ -752,6 +752,85 @@ router.get('/deals/by-phone/:phone', async (req, res, next) => {
   }
 });
 
+// ============================================
+// FOLLOW-UP ENDPOINTS (must come BEFORE /deals/:id)
+// ============================================
+
+/**
+ * GET /api/crm/deals/followup-candidates
+ * Retorna deals elegíveis para follow-up baseado em thresholds.
+ *
+ * IMPORTANTE: precisa ser registrado antes de /deals/:id, senão o
+ * Express captura 'followup-candidates' como :id e tenta cast pra UUID.
+ *
+ * Query params:
+ *   - max_followups (default: 3)
+ *
+ * Regras de cadência (horas sem resposta do cliente):
+ *   - followup_count = 0  → threshold = 2h
+ *   - followup_count = 1  → threshold = 24h
+ *   - followup_count = 2  → threshold = 72h (3 dias)
+ *   - followup_count = 3  → encerra (marca lost)
+ */
+router.get('/deals/followup-candidates', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const maxFollowups = parseInt(req.query.max_followups) || 3;
+
+    // Busca deals abertos elegiveis
+    const result = await query(
+      `SELECT
+        d.id, d.title, d.pipeline_id, d.pipeline_stage_id,
+        d.contact_id, d.contact_name, d.contact_phone,
+        d.followup_count, d.last_followup_at, d.last_client_message_at,
+        d.temperature, d.status, d.created_at, d.stage_entered_at,
+        p.name as pipeline_name,
+        ps.name as stage_name,
+        c.name as contact_full_name, c.email as contact_email,
+        co.name as company_name,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 AS hours_since_activity,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 AS hours_since_followup
+       FROM deals d
+       LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       LEFT JOIN companies co ON co.id = d.company_id
+       WHERE d.organization_id = $1
+         AND d.status = 'open'
+         AND COALESCE(d.followup_count, 0) < $2
+         AND (
+           (COALESCE(d.followup_count, 0) = 0 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 >= 2)
+           OR
+           (COALESCE(d.followup_count, 0) = 1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 24)
+           OR
+           (COALESCE(d.followup_count, 0) = 2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 72)
+         )
+       ORDER BY d.followup_count ASC, hours_since_activity DESC
+       LIMIT 50`,
+      [orgId, maxFollowups]
+    );
+
+    // Para cada deal, buscar últimos 5 insights (contexto)
+    const dealsWithContext = await Promise.all(
+      result.rows.map(async (deal) => {
+        const insights = await query(
+          `SELECT category, content, created_at
+           FROM deal_insights
+           WHERE deal_id = $1
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [deal.id]
+        );
+        return { ...deal, recent_insights: insights.rows };
+      })
+    );
+
+    res.json({ deals: dealsWithContext, total: dealsWithContext.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get deal detail with insights, activities, products, contacts
 router.get('/deals/:id', async (req, res, next) => {
   try {
@@ -1625,81 +1704,10 @@ router.post('/register-lead', async (req, res, next) => {
 });
 
 // ============================================
-// FOLLOW-UP ENDPOINTS
+// FOLLOW-UP ENDPOINTS (continuação)
+// O endpoint GET /deals/followup-candidates foi movido pra antes de /deals/:id
+// pra não ser capturado pelo wildcard (cast pra UUID falhava).
 // ============================================
-
-/**
- * GET /api/crm/deals/followup-candidates
- * Retorna deals elegíveis para follow-up baseado em thresholds.
- *
- * Query params:
- *   - max_followups (default: 3) — nao envia mais que isso
- *   - business_hours_only (default: true) — filtra por horario comercial (9h-18h seg-sex)
- *
- * Regras de cadência (horas sem resposta do cliente):
- *   - followup_count = 0  → threshold = 2h
- *   - followup_count = 1  → threshold = 24h
- *   - followup_count = 2  → threshold = 72h (3 dias)
- *   - followup_count = 3  → encerra (marca lost)
- */
-router.get('/deals/followup-candidates', async (req, res, next) => {
-  try {
-    const orgId = getOrgId(req);
-    const maxFollowups = parseInt(req.query.max_followups) || 3;
-
-    // Busca deals abertos elegiveis
-    const result = await query(
-      `SELECT
-        d.id, d.title, d.pipeline_id, d.pipeline_stage_id,
-        d.contact_id, d.contact_name, d.contact_phone,
-        d.followup_count, d.last_followup_at, d.last_client_message_at,
-        d.temperature, d.status, d.created_at, d.stage_entered_at,
-        p.name as pipeline_name,
-        ps.name as stage_name,
-        c.name as contact_full_name, c.email as contact_email,
-        co.name as company_name,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 AS hours_since_activity,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 AS hours_since_followup
-       FROM deals d
-       LEFT JOIN pipelines p ON p.id = d.pipeline_id
-       LEFT JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
-       LEFT JOIN contacts c ON c.id = d.contact_id
-       LEFT JOIN companies co ON co.id = d.company_id
-       WHERE d.organization_id = $1
-         AND d.status = 'open'
-         AND COALESCE(d.followup_count, 0) < $2
-         AND (
-           (COALESCE(d.followup_count, 0) = 0 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_client_message_at, d.created_at))) / 3600 >= 2)
-           OR
-           (COALESCE(d.followup_count, 0) = 1 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 24)
-           OR
-           (COALESCE(d.followup_count, 0) = 2 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(d.last_followup_at, d.created_at))) / 3600 >= 72)
-         )
-       ORDER BY d.followup_count ASC, hours_since_activity DESC
-       LIMIT 50`,
-      [orgId, maxFollowups]
-    );
-
-    // Para cada deal, buscar últimos 5 insights (contexto)
-    const dealsWithContext = await Promise.all(
-      result.rows.map(async (deal) => {
-        const insights = await query(
-          `SELECT category, content, created_at
-           FROM deal_insights
-           WHERE deal_id = $1
-           ORDER BY created_at DESC
-           LIMIT 5`,
-          [deal.id]
-        );
-        return { ...deal, recent_insights: insights.rows };
-      })
-    );
-
-    res.json({ deals: dealsWithContext, total: dealsWithContext.length });
-  } catch (error) {
-    next(error);
-  }
-});
 
 /**
  * PATCH /api/crm/deals/:id/followup
@@ -2229,6 +2237,184 @@ router.get('/metrics/owner/:user_id', async (req, res, next) => {
       summary: summary.rows[0],
       by_source_detail: bySource.rows,
       by_pipeline: byPipeline.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// RICA AI — KPIs & STATS
+// ============================================
+
+/**
+ * GET /api/crm/rica/stats
+ * Retorna KPIs de performance da Rica AI.
+ * Usado no painel de acompanhamento (Dashboard CRM).
+ */
+router.get('/rica/stats', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+
+    const [
+      qualifiedResult,
+      byExecResult,
+      byProductResult,
+      pendingResult,
+      actionRateResult,
+      recentLeadsResult,
+    ] = await Promise.all([
+      // 1. Leads qualificados (hoje / semana / mês)
+      query(
+        `SELECT
+           COUNT(*) FILTER (WHERE assigned_at::date = CURRENT_DATE) AS today,
+           COUNT(*) FILTER (WHERE assigned_at >= date_trunc('week', CURRENT_DATE)) AS week,
+           COUNT(*) FILTER (WHERE assigned_at >= date_trunc('month', CURRENT_DATE)) AS month,
+           COUNT(*) AS total
+         FROM deals
+         WHERE organization_id = $1 AND assigned_by = 'rica_ai'`,
+        [orgId]
+      ),
+
+      // 2. Distribuição por executivo (mês atual)
+      query(
+        `SELECT u.id AS user_id, u.name, COUNT(d.id) AS count
+         FROM deals d
+         JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)
+         GROUP BY u.id, u.name
+         ORDER BY count DESC`,
+        [orgId]
+      ),
+
+      // 3. Leads por produto (via metadata de atividade escalation)
+      query(
+        `SELECT
+           COALESCE(da.metadata->>'product', 'Não especificado') AS product,
+           COUNT(DISTINCT da.deal_id) AS count
+         FROM deal_activities da
+         JOIN deals d ON d.id = da.deal_id
+         WHERE d.organization_id = $1
+           AND da.type = 'escalation'
+           AND da.created_at >= date_trunc('month', CURRENT_DATE)
+           AND da.metadata->>'product' IS NOT NULL
+         GROUP BY da.metadata->>'product'
+         ORDER BY count DESC
+         LIMIT 10`,
+        [orgId]
+      ),
+
+      // 4. Sem retorno — leads assignados pela Rica onde executivo não agiu
+      query(
+        `SELECT d.id, d.contact_name, d.contact_phone, d.title, d.assigned_at, d.assigned_via,
+                u.name AS executive_name
+         FROM deals d
+         LEFT JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.status = 'open'
+           AND d.assigned_at >= NOW() - INTERVAL '30 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM deal_activities da
+             WHERE da.deal_id = d.id
+               AND da.user_id IS NOT NULL
+               AND da.type NOT IN ('escalation', 'exec_followup', 'automation')
+               AND da.created_at > d.assigned_at
+           )
+         ORDER BY d.assigned_at ASC
+         LIMIT 50`,
+        [orgId]
+      ),
+
+      // 5. Taxa de ação — % de leads Rica onde exec interagiu
+      query(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (
+             WHERE EXISTS (
+               SELECT 1 FROM deal_activities da
+               WHERE da.deal_id = d.id
+                 AND da.user_id IS NOT NULL
+                 AND da.type NOT IN ('escalation', 'exec_followup', 'automation')
+                 AND da.created_at > d.assigned_at
+             )
+           ) AS acted
+         FROM deals d
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)`,
+        [orgId]
+      ),
+
+      // 6. Leads recentes (drill-down, mês atual)
+      query(
+        `SELECT d.id, d.contact_name, d.contact_phone, d.title, d.status,
+                d.assigned_at, d.assigned_via,
+                u.name AS executive_name,
+                (SELECT da.metadata->>'product'
+                 FROM deal_activities da
+                 WHERE da.deal_id = d.id AND da.type = 'escalation'
+                 ORDER BY da.created_at DESC LIMIT 1) AS product
+         FROM deals d
+         LEFT JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)
+         ORDER BY d.assigned_at DESC
+         LIMIT 100`,
+        [orgId]
+      ),
+    ]);
+
+    const total = parseInt(actionRateResult.rows[0]?.total) || 0;
+    const acted = parseInt(actionRateResult.rows[0]?.acted) || 0;
+
+    res.json({
+      qualified_leads: {
+        today: parseInt(qualifiedResult.rows[0]?.today) || 0,
+        week: parseInt(qualifiedResult.rows[0]?.week) || 0,
+        month: parseInt(qualifiedResult.rows[0]?.month) || 0,
+        total: parseInt(qualifiedResult.rows[0]?.total) || 0,
+      },
+      by_executive: byExecResult.rows.map(r => ({
+        user_id: r.user_id,
+        name: r.name,
+        count: parseInt(r.count) || 0,
+      })),
+      by_product: byProductResult.rows.map(r => ({
+        product: r.product,
+        count: parseInt(r.count) || 0,
+      })),
+      pending_followups: {
+        count: pendingResult.rows.length,
+        deals: pendingResult.rows.map(r => ({
+          id: r.id,
+          contact_name: r.contact_name,
+          contact_phone: r.contact_phone,
+          title: r.title,
+          executive_name: r.executive_name,
+          assigned_at: r.assigned_at,
+          assigned_via: r.assigned_via,
+        })),
+      },
+      action_rate: {
+        total_assigned: total,
+        exec_acted: acted,
+        rate: total > 0 ? Math.round((acted / total) * 1000) / 10 : 0,
+      },
+      recent_leads: recentLeadsResult.rows.map(r => ({
+        id: r.id,
+        contact_name: r.contact_name,
+        contact_phone: r.contact_phone,
+        title: r.title,
+        status: r.status,
+        executive_name: r.executive_name,
+        product: r.product,
+        assigned_at: r.assigned_at,
+        assigned_via: r.assigned_via,
+      })),
     });
   } catch (error) {
     next(error);
