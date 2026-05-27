@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
+import { RicaDashboard } from '@/components/crm/RicaDashboard'
 import type {
   Deal, PipelineStage, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
 } from '@/types'
@@ -1093,6 +1094,9 @@ function DashboardView({ stages, openDeals, wonDeals, lostDeals, stats, onDealCl
           </CardContent>
         </Card>
       </div>
+
+      {/* Rica AI KPIs */}
+      <RicaDashboard onDealClick={onDealClick} />
     </div>
   )
 }

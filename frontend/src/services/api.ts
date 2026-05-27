@@ -570,6 +570,12 @@ export const crmApi = {
     request<import('@/types').CrmStats>(
       `/api/crm/stats${withOrg(pipelineId ? { pipeline_id: pipelineId } : {})}`
     ),
+
+  // Rica AI stats
+  rica: {
+    stats: () =>
+      request<import('@/types').RicaStats>(`/api/crm/rica/stats${withOrg()}`),
+  },
 }
 
 // Transcriptions / Atas

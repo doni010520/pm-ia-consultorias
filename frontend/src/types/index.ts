@@ -553,6 +553,53 @@ export interface CrmStats {
   recent_activities: DealActivity[]
 }
 
+// Rica AI KPIs
+export interface RicaStats {
+  qualified_leads: {
+    today: number
+    week: number
+    month: number
+    total: number
+  }
+  by_executive: Array<{
+    user_id: string
+    name: string
+    count: number
+  }>
+  by_product: Array<{
+    product: string
+    count: number
+  }>
+  pending_followups: {
+    count: number
+    deals: Array<{
+      id: string
+      contact_name: string | null
+      contact_phone: string | null
+      title: string | null
+      executive_name: string | null
+      assigned_at: string
+      assigned_via: string | null
+    }>
+  }
+  action_rate: {
+    total_assigned: number
+    exec_acted: number
+    rate: number
+  }
+  recent_leads: Array<{
+    id: string
+    contact_name: string | null
+    contact_phone: string | null
+    title: string | null
+    status: string
+    executive_name: string | null
+    product: string | null
+    assigned_at: string
+    assigned_via: string | null
+  }>
+}
+
 export interface DealFile {
   id: string
   deal_id: string

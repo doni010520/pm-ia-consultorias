@@ -1659,7 +1659,8 @@ router.post('/register-lead', async (req, res, next) => {
     const {
       contact_name, contact_phone, contact_email,
       company_name, company_cnpj, company_segment, company_city, company_state,
-      pipeline_name, pipeline_stage_name, deal_title, source = 'whatsapp', temperature = 'warm', value,
+      pipeline_name, pipeline_stage_name, deal_title, source = 'whatsapp', source_detail = null,
+      temperature = 'warm', value,
     } = req.body;
 
     if (!contact_name && !contact_phone) {
@@ -1759,14 +1760,14 @@ router.post('/register-lead', async (req, res, next) => {
     const dealResult = await query(
       `INSERT INTO deals (organization_id, pipeline_id, pipeline_stage_id, title,
         contact_name, contact_phone, contact_email, company_name,
-        company_id, contact_id, source, temperature, value, tags, custom_fields, stage_entered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        company_id, contact_id, source, source_detail, temperature, value, tags, custom_fields, stage_entered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
        RETURNING *`,
       [
         orgId, pipelineId, stageId,
         deal_title || `Lead - ${contact_name || contact_phone}`,
         contact_name, contact_phone, contact_email, company_name,
-        companyId, contactId, source, temperature, value || null, [], {},
+        companyId, contactId, source, source_detail, temperature, value || null, [], {},
       ]
     );
 
@@ -1797,7 +1798,7 @@ router.post('/register-lead', async (req, res, next) => {
 
 // ============================================
 // FOLLOW-UP ENDPOINTS (continuação)
-// GET /deals/followup-candidates foi movido pra antes de /deals/:id
+// O endpoint GET /deals/followup-candidates foi movido pra antes de /deals/:id
 // pra não ser capturado pelo wildcard (cast pra UUID falhava).
 // ============================================
 
@@ -1876,16 +1877,21 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
     const cleanPhone = String(phone).replace(/\D/g, '');
 
     // 2. Atualiza owner_id de todos os deals abertos do contato
+    // Tambem registra assigned_via, assigned_at, assigned_by para rastreabilidade
     const result = await query(
       `UPDATE deals d
-       SET owner_id = $3, updated_at = NOW()
+       SET owner_id = $3,
+           assigned_via = COALESCE($4, 'notificar_equipe'),
+           assigned_at = NOW(),
+           assigned_by = COALESCE($5, 'system'),
+           updated_at = NOW()
        FROM contacts c
        WHERE d.contact_id = c.id
          AND d.organization_id = $1
          AND d.status = 'open'
          AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
        RETURNING d.id`,
-      [orgId, cleanPhone, owner.id]
+      [orgId, cleanPhone, owner.id, req.body.assigned_via || null, req.body.assigned_by || null]
     );
 
     // Journey + audit for each deal updated
@@ -2087,6 +2093,96 @@ router.patch('/deals/:id/close-no-response', async (req, res, next) => {
 });
 
 // ============================================
+// MENSAGENS (RASTREABILIDADE TOTAL)
+// ============================================
+
+/**
+ * POST /api/crm/messages
+ * Registra uma mensagem trocada com o cliente (in/out).
+ * Pode ser chamado pelo workflow Rica em paralelo (nao bloqueia).
+ *
+ * Body: {
+ *   phone: "5511...",         // OBRIGATORIO
+ *   direction: "in" | "out",  // OBRIGATORIO
+ *   text: string,
+ *   sender: "cliente" | "rica_ai" | "system_followup" | "executive" | "system_catchup",
+ *   content_type: "text" | "image" | "audio" | "document" | "system_note",
+ *   media_url: string (opcional),
+ *   sent_at: ISO timestamp (opcional, default NOW()),
+ *   n8n_execution_id: string (opcional),
+ *   workflow_name: string (opcional),
+ *   raw_payload: object (opcional)
+ * }
+ *
+ * Resolve automaticamente contact_id e deal_id (mais recente aberto) pelo phone.
+ * Retorna o message_id criado.
+ */
+router.post('/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const {
+      phone, direction, text, sender,
+      content_type = 'text', media_url = null,
+      sent_at = null, deal_id: bodyDealId = null,
+      workflow_name = null,
+    } = req.body;
+
+    if (!phone || !direction) {
+      return res.status(400).json({ error: { message: 'phone e direction obrigatorios' } });
+    }
+    if (!['in', 'out'].includes(direction)) {
+      return res.status(400).json({ error: { message: 'direction deve ser "in" ou "out"' } });
+    }
+
+    const cleanPhone = String(phone).replace(/\D/g, '');
+
+    // Resolve deal_id pelo telefone se não veio no body
+    let deal_id = bodyDealId || null;
+    if (!deal_id) {
+      const contactRes = await query(
+        `SELECT c.id as contact_id, d.id as deal_id
+         FROM contacts c
+         LEFT JOIN deals d ON d.contact_id = c.id AND d.organization_id = $1 AND d.status = 'open'
+         WHERE c.organization_id = $1
+           AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
+         ORDER BY d.created_at DESC NULLS LAST
+         LIMIT 1`,
+        [orgId, cleanPhone]
+      );
+      deal_id = contactRes.rows[0]?.deal_id || null;
+    }
+
+    // Mapeia campos do Rica para schema real da tabela deal_messages:
+    // direction+sender → role (lead=cliente in, rica_ai=rica out)
+    const role = direction === 'in' ? (sender || 'lead') : (sender || 'rica_ai');
+    const channel = 'whatsapp';
+    const mediaType = content_type !== 'text' ? content_type : null;
+
+    const result = await query(
+      `INSERT INTO deal_messages
+        (organization_id, deal_id, role, channel, content, media_url, media_type,
+         rica_session_id, metadata, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, NOW()))
+       RETURNING id, occurred_at`,
+      [
+        orgId, deal_id, role, channel, text || null, media_url, mediaType,
+        cleanPhone,
+        JSON.stringify({ direction, sender, workflow_name }),
+        sent_at,
+      ]
+    );
+
+    res.status(201).json({
+      message_id: result.rows[0].id,
+      sent_at: result.rows[0].occurred_at,
+      deal_id,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
 // DEAL MESSAGES (Conversa Rica)
 // ============================================
 
@@ -2150,16 +2246,23 @@ router.post('/deals/:id/messages', async (req, res, next) => {
 
 /**
  * GET /api/crm/deals/:id/messages
- * Lista mensagens paginadas (cursor por occurred_at).
+ * Retorna mensagens de um deal, com paginacao por cursor (before) e campos enriquecidos.
  */
 router.get('/deals/:id/messages', async (req, res, next) => {
   try {
+    const orgId = getOrgId(req);
     const { id } = req.params;
-    const { limit = 100, before } = req.query;
+    const { before } = req.query;
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
 
-    let sql = `SELECT * FROM deal_messages WHERE deal_id = $1`;
-    const params = [id];
-    let idx = 2;
+    let sql = `SELECT id, role, channel, content as text, media_url, media_type,
+              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
+              metadata->>'direction' as direction,
+              metadata->>'sender' as sender
+       FROM deal_messages
+       WHERE deal_id = $1 AND organization_id = $2`;
+    const params = [id, orgId];
+    let idx = 3;
 
     if (before) {
       sql += ` AND occurred_at < $${idx++}`;
@@ -2167,10 +2270,66 @@ router.get('/deals/:id/messages', async (req, res, next) => {
     }
 
     sql += ` ORDER BY occurred_at ASC LIMIT $${idx}`;
-    params.push(Math.min(parseInt(limit) || 100, 500));
+    params.push(limit);
 
     const result = await query(sql, params);
-    res.json({ messages: result.rows, count: result.rows.length });
+    res.json({ messages: result.rows, total: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/crm/contacts/:phone/messages
+ * Retorna todas mensagens trocadas com o telefone, mesmo que ainda nao tenha deal_id.
+ */
+router.get('/contacts/by-phone/:phone/messages', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const cleanPhone = String(req.params.phone).replace(/\D/g, '');
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+
+    const result = await query(
+      `SELECT id, deal_id, role, channel, content as text, media_url, media_type,
+              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
+              metadata->>'direction' as direction,
+              metadata->>'sender' as sender
+       FROM deal_messages
+       WHERE organization_id = $1
+         AND rica_session_id = $2
+       ORDER BY occurred_at ASC
+       LIMIT $3`,
+      [orgId, cleanPhone, limit]
+    );
+    res.json({ messages: result.rows, total: result.rows.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/crm/deals/:id/source-detail
+ * Atualiza o source_detail de um deal (origem detalhada do trafego).
+ * Usado pelo workflow da Rica quando detecta a fonte (anuncio_gps_padaria, etc).
+ */
+router.post('/deals/:id/source-detail', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { source_detail } = req.body;
+    if (!source_detail) {
+      return res.status(400).json({ error: { message: 'source_detail obrigatorio' } });
+    }
+    const result = await query(
+      `UPDATE deals SET source_detail = $3, updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING id, source_detail`,
+      [id, orgId, source_detail]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: { message: 'deal nao encontrado' } });
+    }
+    res.json({ deal: result.rows[0] });
   } catch (error) {
     next(error);
   }
@@ -2238,6 +2397,36 @@ router.get('/deals/:id/journey', async (req, res, next) => {
 });
 
 /**
+ * POST /api/crm/deals/source-detail-by-phone
+ * Mesma coisa que /deals/:id/source-detail mas resolve pelo telefone.
+ * Aplica em todos os deals abertos do contato.
+ */
+router.post('/deals/source-detail-by-phone', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { phone, source_detail } = req.body;
+    if (!phone || !source_detail) {
+      return res.status(400).json({ error: { message: 'phone e source_detail obrigatorios' } });
+    }
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const result = await query(
+      `UPDATE deals d
+       SET source_detail = $3, updated_at = NOW()
+       FROM contacts c
+       WHERE d.contact_id = c.id
+         AND d.organization_id = $1
+         AND d.status = 'open'
+         AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
+       RETURNING d.id`,
+      [orgId, cleanPhone, source_detail]
+    );
+    res.json({ updated: result.rows.length, deal_ids: result.rows.map(r => r.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/crm/journey/funnel
  * Agrega contagens e tempo medio por tipo de evento (para dashboard de jornada).
  * Query params: pipeline_id, from, to, first_channel
@@ -2291,6 +2480,62 @@ router.get('/journey/funnel', async (req, res, next) => {
 });
 
 /**
+ * GET /api/crm/metrics/owner/:user_id?from=2026-05-01&to=2026-05-31
+ * Retorna metricas de leads atribuidos a um executivo no periodo.
+ */
+router.get('/metrics/owner/:user_id', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { user_id } = req.params;
+    const from = req.query.from || '1970-01-01';
+    const to = req.query.to || new Date().toISOString();
+
+    const summary = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE assigned_via = 'notificar_equipe') AS via_notificar,
+         COUNT(*) FILTER (WHERE assigned_via = 'manual') AS via_manual,
+         COUNT(*) FILTER (WHERE assigned_via = 'catchup') AS via_catchup,
+         COUNT(*) FILTER (WHERE assigned_via = 'reassigned') AS via_reassigned,
+         COUNT(*) FILTER (WHERE assigned_via = 'historico') AS via_historico,
+         COUNT(*) AS total
+       FROM deals
+       WHERE organization_id = $1
+         AND owner_id = $2
+         AND assigned_at >= $3
+         AND assigned_at <= $4`,
+      [orgId, user_id, from, to]
+    );
+
+    const bySource = await query(
+      `SELECT source_detail, COUNT(*) AS count
+       FROM deals
+       WHERE organization_id = $1 AND owner_id = $2
+         AND assigned_at >= $3 AND assigned_at <= $4
+       GROUP BY source_detail ORDER BY count DESC`,
+      [orgId, user_id, from, to]
+    );
+
+    const byPipeline = await query(
+      `SELECT p.name AS pipeline, COUNT(*) AS count
+       FROM deals d LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       WHERE d.organization_id = $1 AND d.owner_id = $2
+         AND d.assigned_at >= $3 AND d.assigned_at <= $4
+       GROUP BY p.name ORDER BY count DESC`,
+      [orgId, user_id, from, to]
+    );
+
+    res.json({
+      user_id, from, to,
+      summary: summary.rows[0],
+      by_source_detail: bySource.rows,
+      by_pipeline: byPipeline.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/crm/journey/sources
  * Breakdown de leads por first_channel e UTM source.
  */
@@ -2322,6 +2567,184 @@ router.get('/journey/sources', async (req, res, next) => {
     );
 
     res.json({ sources: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// RICA AI — KPIs & STATS
+// ============================================
+
+/**
+ * GET /api/crm/rica/stats
+ * Retorna KPIs de performance da Rica AI.
+ * Usado no painel de acompanhamento (Dashboard CRM).
+ */
+router.get('/rica/stats', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+
+    const [
+      qualifiedResult,
+      byExecResult,
+      byProductResult,
+      pendingResult,
+      actionRateResult,
+      recentLeadsResult,
+    ] = await Promise.all([
+      // 1. Leads qualificados (hoje / semana / mês)
+      query(
+        `SELECT
+           COUNT(*) FILTER (WHERE assigned_at::date = CURRENT_DATE) AS today,
+           COUNT(*) FILTER (WHERE assigned_at >= date_trunc('week', CURRENT_DATE)) AS week,
+           COUNT(*) FILTER (WHERE assigned_at >= date_trunc('month', CURRENT_DATE)) AS month,
+           COUNT(*) AS total
+         FROM deals
+         WHERE organization_id = $1 AND assigned_by = 'rica_ai'`,
+        [orgId]
+      ),
+
+      // 2. Distribuição por executivo (mês atual)
+      query(
+        `SELECT u.id AS user_id, u.name, COUNT(d.id) AS count
+         FROM deals d
+         JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)
+         GROUP BY u.id, u.name
+         ORDER BY count DESC`,
+        [orgId]
+      ),
+
+      // 3. Leads por produto (via metadata de atividade escalation)
+      query(
+        `SELECT
+           COALESCE(da.metadata->>'product', 'Não especificado') AS product,
+           COUNT(DISTINCT da.deal_id) AS count
+         FROM deal_activities da
+         JOIN deals d ON d.id = da.deal_id
+         WHERE d.organization_id = $1
+           AND da.type = 'escalation'
+           AND da.created_at >= date_trunc('month', CURRENT_DATE)
+           AND da.metadata->>'product' IS NOT NULL
+         GROUP BY da.metadata->>'product'
+         ORDER BY count DESC
+         LIMIT 10`,
+        [orgId]
+      ),
+
+      // 4. Sem retorno — leads assignados pela Rica onde executivo não agiu
+      query(
+        `SELECT d.id, d.contact_name, d.contact_phone, d.title, d.assigned_at, d.assigned_via,
+                u.name AS executive_name
+         FROM deals d
+         LEFT JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.status = 'open'
+           AND d.assigned_at >= NOW() - INTERVAL '30 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM deal_activities da
+             WHERE da.deal_id = d.id
+               AND da.user_id IS NOT NULL
+               AND da.type NOT IN ('escalation', 'exec_followup', 'automation')
+               AND da.created_at > d.assigned_at
+           )
+         ORDER BY d.assigned_at ASC
+         LIMIT 50`,
+        [orgId]
+      ),
+
+      // 5. Taxa de ação — % de leads Rica onde exec interagiu
+      query(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (
+             WHERE EXISTS (
+               SELECT 1 FROM deal_activities da
+               WHERE da.deal_id = d.id
+                 AND da.user_id IS NOT NULL
+                 AND da.type NOT IN ('escalation', 'exec_followup', 'automation')
+                 AND da.created_at > d.assigned_at
+             )
+           ) AS acted
+         FROM deals d
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)`,
+        [orgId]
+      ),
+
+      // 6. Leads recentes (drill-down, mês atual)
+      query(
+        `SELECT d.id, d.contact_name, d.contact_phone, d.title, d.status,
+                d.assigned_at, d.assigned_via,
+                u.name AS executive_name,
+                (SELECT da.metadata->>'product'
+                 FROM deal_activities da
+                 WHERE da.deal_id = d.id AND da.type = 'escalation'
+                 ORDER BY da.created_at DESC LIMIT 1) AS product
+         FROM deals d
+         LEFT JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1
+           AND d.assigned_by = 'rica_ai'
+           AND d.assigned_at >= date_trunc('month', CURRENT_DATE)
+         ORDER BY d.assigned_at DESC
+         LIMIT 100`,
+        [orgId]
+      ),
+    ]);
+
+    const total = parseInt(actionRateResult.rows[0]?.total) || 0;
+    const acted = parseInt(actionRateResult.rows[0]?.acted) || 0;
+
+    res.json({
+      qualified_leads: {
+        today: parseInt(qualifiedResult.rows[0]?.today) || 0,
+        week: parseInt(qualifiedResult.rows[0]?.week) || 0,
+        month: parseInt(qualifiedResult.rows[0]?.month) || 0,
+        total: parseInt(qualifiedResult.rows[0]?.total) || 0,
+      },
+      by_executive: byExecResult.rows.map(r => ({
+        user_id: r.user_id,
+        name: r.name,
+        count: parseInt(r.count) || 0,
+      })),
+      by_product: byProductResult.rows.map(r => ({
+        product: r.product,
+        count: parseInt(r.count) || 0,
+      })),
+      pending_followups: {
+        count: pendingResult.rows.length,
+        deals: pendingResult.rows.map(r => ({
+          id: r.id,
+          contact_name: r.contact_name,
+          contact_phone: r.contact_phone,
+          title: r.title,
+          executive_name: r.executive_name,
+          assigned_at: r.assigned_at,
+          assigned_via: r.assigned_via,
+        })),
+      },
+      action_rate: {
+        total_assigned: total,
+        exec_acted: acted,
+        rate: total > 0 ? Math.round((acted / total) * 1000) / 10 : 0,
+      },
+      recent_leads: recentLeadsResult.rows.map(r => ({
+        id: r.id,
+        contact_name: r.contact_name,
+        contact_phone: r.contact_phone,
+        title: r.title,
+        status: r.status,
+        executive_name: r.executive_name,
+        product: r.product,
+        assigned_at: r.assigned_at,
+        assigned_via: r.assigned_via,
+      })),
+    });
   } catch (error) {
     next(error);
   }
