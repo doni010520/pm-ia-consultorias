@@ -534,6 +534,10 @@ export const crmApi = {
       request<{ sources: import('@/types').JourneySourceRow[] }>(
         `/api/crm/journey/sources${withOrg(filters)}`
       ),
+    distribution: (filters?: { from?: string; to?: string }) =>
+      request<import('@/types').JourneyDistribution>(
+        `/api/crm/journey/distribution${withOrg(filters)}`
+      ),
   },
 
   // Register Lead (N8N transactional)

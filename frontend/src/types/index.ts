@@ -482,6 +482,23 @@ export interface JourneySourceRow {
   won_value: number
 }
 
+export interface JourneyDistribution {
+  total_leads: number
+  distributed: number
+  undistributed: number
+  by_executive: {
+    executive: string
+    leads: number
+    won: number
+    lost: number
+    open: number
+  }[]
+  undistributed_by_pipeline: {
+    pipeline: string
+    leads: number
+  }[]
+}
+
 export interface DealProduct {
   id: string
   deal_id: string

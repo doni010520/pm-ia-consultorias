@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { Route, Users, TrendingUp, Clock, Filter } from 'lucide-react'
+import { Route, Users, TrendingUp, Clock, Filter, UserX, UserCheck, AlertTriangle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
@@ -87,9 +87,21 @@ export default function LeadJourney() {
     queryFn: () => crmApi.journey.sources(dateRange()),
   })
 
+  const { data: distData, isLoading: distLoading } = useQuery({
+    queryKey: ['crm-journey-distribution', period],
+    queryFn: () => crmApi.journey.distribution(dateRange()),
+  })
+
   const funnelRows = funnelData?.funnel ?? []
   const totalLeads = funnelData?.total_leads ?? 0
   const sources = sourcesData?.sources ?? []
+
+  const distTotal = distData?.total_leads ?? 0
+  const undistributed = distData?.undistributed ?? 0
+  const distributed = distData?.distributed ?? 0
+  const undistPct = distTotal > 0 ? Math.round((undistributed / distTotal) * 100) : 0
+  const byExec = distData?.by_executive ?? []
+  const maxExecLeads = byExec.reduce((m, e) => Math.max(m, e.leads), 0)
 
   // Ordenar e completar o funil
   const orderedFunnel = FUNNEL_ORDER.flatMap(eventType => {
@@ -188,6 +200,74 @@ export default function LeadJourney() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Distribuição dos Leads */}
+      <Card className="mb-6">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-700">Distribuição dos Leads</h2>
+            <span className="text-xs text-slate-400">{distTotal} leads no período</span>
+          </div>
+          {distLoading ? (
+            <div className="flex justify-center py-8"><LoadingSpinner /></div>
+          ) : distTotal === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">Nenhum lead no período.</p>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-5">
+              {/* Status */}
+              <div className="space-y-3">
+                <div className={`rounded-lg p-4 border ${
+                  undistPct >= 40 ? 'bg-red-50 border-red-200' : undistPct >= 15 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    {undistPct >= 40 ? <AlertTriangle className="h-4 w-4 text-red-500" /> : <UserX className="h-4 w-4 text-amber-500" />}
+                    <span className="text-xs font-medium text-slate-600 uppercase tracking-wider">Não distribuídos</span>
+                  </div>
+                  <p className={`text-3xl font-bold ${undistPct >= 40 ? 'text-red-600' : 'text-amber-600'}`}>{undistributed}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{undistPct}% dos leads ainda sem executivo</p>
+                </div>
+                <div className="rounded-lg p-4 border bg-emerald-50 border-emerald-200">
+                  <div className="flex items-center gap-2 mb-1">
+                    <UserCheck className="h-4 w-4 text-emerald-500" />
+                    <span className="text-xs font-medium text-slate-600 uppercase tracking-wider">Distribuídos</span>
+                  </div>
+                  <p className="text-3xl font-bold text-emerald-600">{distributed}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{distTotal > 0 ? Math.round((distributed / distTotal) * 100) : 0}% encaminhados a executivos</p>
+                </div>
+              </div>
+
+              {/* Por executivo */}
+              <div className="md:col-span-2">
+                <p className="text-xs font-medium text-slate-500 mb-3">Leads por executivo</p>
+                {byExec.length === 0 ? (
+                  <p className="text-sm text-slate-400 py-6 text-center">Nenhum lead distribuído no período.</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {byExec.map(e => (
+                      <div key={e.executive} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-slate-700">{e.executive}</span>
+                          <span className="text-slate-400">
+                            <span className="font-semibold text-slate-600">{e.leads}</span> leads
+                            {e.open > 0 && <> · {e.open} em aberto</>}
+                            {e.lost > 0 && <> · <span className="text-red-400">{e.lost} perdidos</span></>}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-500 rounded-full"
+                            style={{ width: `${maxExecLeads > 0 ? (e.leads / maxExecLeads) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Funil */}

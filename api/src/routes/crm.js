@@ -2572,6 +2572,80 @@ router.get('/journey/sources', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/crm/journey/distribution?from=...&to=...
+ * Status de distribuição dos leads: quantos foram para executivos e
+ * quantos continuam sem dono (parados na entrada). Mais a quebra por executivo.
+ */
+router.get('/journey/distribution', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { from, to } = req.query;
+
+    let where = 'WHERE d.organization_id = $1';
+    const params = [orgId];
+    let idx = 2;
+    if (from) { where += ` AND d.created_at >= $${idx++}`; params.push(from); }
+    if (to) { where += ` AND d.created_at <= $${idx++}`; params.push(to); }
+
+    // Totais: distribuídos (tem owner) vs não distribuídos (sem owner)
+    const totals = await query(
+      `SELECT
+         COUNT(*) AS total,
+         COUNT(*) FILTER (WHERE d.owner_id IS NOT NULL) AS distributed,
+         COUNT(*) FILTER (WHERE d.owner_id IS NULL) AS undistributed
+       FROM deals d ${where}`,
+      params
+    );
+
+    // Quebra por executivo (apenas leads com dono)
+    const byExec = await query(
+      `SELECT u.name AS executive,
+         COUNT(*) AS leads,
+         COUNT(*) FILTER (WHERE d.status = 'won') AS won,
+         COUNT(*) FILTER (WHERE d.status = 'lost') AS lost,
+         COUNT(*) FILTER (WHERE d.status NOT IN ('won','lost')) AS open
+       FROM deals d
+       JOIN users u ON u.id = d.owner_id
+       ${where}
+       GROUP BY u.name
+       ORDER BY leads DESC`,
+      params
+    );
+
+    // Onde os não distribuídos estão parados (por funil)
+    const undistByPipeline = await query(
+      `SELECT COALESCE(p.name, '—') AS pipeline, COUNT(*) AS leads
+       FROM deals d
+       LEFT JOIN pipelines p ON p.id = d.pipeline_id
+       ${where} AND d.owner_id IS NULL
+       GROUP BY p.name
+       ORDER BY leads DESC`,
+      params
+    );
+
+    const t = totals.rows[0] || {};
+    res.json({
+      total_leads: parseInt(t.total || 0),
+      distributed: parseInt(t.distributed || 0),
+      undistributed: parseInt(t.undistributed || 0),
+      by_executive: byExec.rows.map(r => ({
+        executive: r.executive,
+        leads: parseInt(r.leads),
+        won: parseInt(r.won),
+        lost: parseInt(r.lost),
+        open: parseInt(r.open),
+      })),
+      undistributed_by_pipeline: undistByPipeline.rows.map(r => ({
+        pipeline: r.pipeline,
+        leads: parseInt(r.leads),
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ============================================
 // RICA AI — KPIs & STATS
 // ============================================
