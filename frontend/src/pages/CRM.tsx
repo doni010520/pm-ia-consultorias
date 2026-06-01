@@ -293,13 +293,16 @@ export default function CRM() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">CRM</h1>
             {/* Pipeline Selector Dropdown */}
             {hasPipelines && (
-              <div className="relative" ref={pipelineDropdownRef}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Funil</span>
+                <div className="relative" ref={pipelineDropdownRef}>
                 <button
                   onClick={() => setShowPipelineDropdown(!showPipelineDropdown)}
-                  className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
+                  title="Clique para trocar de funil"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:border-slate-400 transition-colors shadow-sm"
                 >
                   <span className="max-w-[200px] truncate">{selectedPipeline?.name || 'Selecionar funil'}</span>
-                  <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${showPipelineDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${showPipelineDropdown ? 'rotate-180' : ''}`} />
                 </button>
 
                 {showPipelineDropdown && (
@@ -369,6 +372,7 @@ export default function CRM() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>
@@ -1346,11 +1350,15 @@ function DealCard({ deal, stage, onDragStart, onDragEnd, onClick }: {
       onClick={onClick}
       className={`bg-white rounded-md border border-slate-200/80 p-3 cursor-pointer border-l-[3px] ${agingClass} hover:shadow-md hover:-translate-y-px transition-all duration-150`}
     >
-      <p className="text-sm font-medium text-slate-800 line-clamp-2 leading-snug">{deal.title}</p>
-      {(deal.contact_name || deal.company_name) && (
-        <p className="text-xs text-slate-400 mt-1 truncate">
-          {deal.contact_name}{deal.company_name ? ` - ${deal.company_name}` : ''}
-        </p>
+      {deal.contact_name ? (
+        <>
+          <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.contact_name}</p>
+          <p className="text-xs text-slate-400 mt-0.5 truncate">
+            {deal.title}{deal.company_name ? ` · ${deal.company_name}` : ''}
+          </p>
+        </>
+      ) : (
+        <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.title}</p>
       )}
       {deal.value != null && deal.value > 0 && (
         <p className="text-sm font-medium text-emerald-600 mt-1.5">{formatCurrency(deal.value)}</p>

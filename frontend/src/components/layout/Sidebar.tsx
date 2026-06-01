@@ -19,19 +19,29 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
 
-const navItems = [
-  { to: '/rica', icon: Bot, label: 'Rica AI' },
-  { to: '/crm', icon: Target, label: 'CRM' },
-  { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
-  { to: '/crm/templates', icon: FileSignature, label: 'Templates' },
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/projects', icon: FolderKanban, label: 'Projetos' },
-  { to: '/tasks', icon: CheckSquare, label: 'Tarefas' },
-  { to: '/atas', icon: FileText, label: 'Atas' },
-  { to: '/alerts', icon: Bell, label: 'Alertas' },
-  { to: '/reports', icon: BarChart3, label: 'Relatorios' },
-  { to: '/team', icon: Users, label: 'Equipe' },
-  { to: '/capacity', icon: Clock, label: 'Capacidade' },
+const navGroups = [
+  {
+    label: 'Comercial',
+    items: [
+      { to: '/crm', icon: Target, label: 'CRM' },
+      { to: '/rica', icon: Bot, label: 'Rica AI' },
+      { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
+      { to: '/crm/templates', icon: FileSignature, label: 'Templates de Proposta' },
+    ],
+  },
+  {
+    label: 'Gestão',
+    items: [
+      { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/projects', icon: FolderKanban, label: 'Projetos' },
+      { to: '/tasks', icon: CheckSquare, label: 'Tarefas' },
+      { to: '/atas', icon: FileText, label: 'Atas' },
+      { to: '/alerts', icon: Bell, label: 'Alertas' },
+      { to: '/reports', icon: BarChart3, label: 'Relatorios' },
+      { to: '/team', icon: Users, label: 'Equipe' },
+      { to: '/capacity', icon: Clock, label: 'Capacidade' },
+    ],
+  },
 ]
 
 function NavContent() {
@@ -41,24 +51,31 @@ function NavContent() {
         <img src="/logo.png" alt="PM-IA" className="h-9 w-auto" onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextSibling as HTMLElement)?.style.removeProperty('display'); }} />
         <span className="text-xl font-bold text-sidebar-foreground" style={{ display: 'none' }}>PM-IA</span>
       </div>
-      <nav className="flex-1 px-3 space-y-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-sidebar-accent text-white'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-muted hover:text-sidebar-foreground'
-              )
-            }
-          >
-            <item.icon className="h-4 w-4" />
-            {item.label}
-          </NavLink>
+      <nav className="flex-1 px-3 space-y-4 overflow-y-auto">
+        {navGroups.map((group) => (
+          <div key={group.label} className="space-y-1">
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+              {group.label}
+            </p>
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-sidebar-accent text-white'
+                      : 'text-sidebar-foreground/70 hover:bg-sidebar-muted hover:text-sidebar-foreground'
+                  )
+                }
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
     </div>
