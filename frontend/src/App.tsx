@@ -7,6 +7,7 @@ import { Header } from '@/components/layout/Header'
 import Login from '@/pages/Login'
 import InviteAccept from '@/pages/InviteAccept'
 import Dashboard from '@/pages/Dashboard'
+import Overview from '@/pages/Overview'
 import Projects from '@/pages/Projects'
 import ProjectDetail from '@/pages/ProjectDetail'
 import Tasks from '@/pages/Tasks'
@@ -58,7 +59,8 @@ function ProtectedLayout() {
       <div className="md:pl-64 flex flex-col min-h-screen">
         <Header />
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Overview />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/tasks" element={<Tasks />} />
