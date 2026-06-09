@@ -307,6 +307,9 @@ export default function CRM() {
 
                 {showPipelineDropdown && (
                   <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg border shadow-lg py-1 min-w-[240px]">
+                    <div className="px-3 py-1.5 mb-1 border-b border-slate-100">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Selecione o funil</p>
+                    </div>
                     {pipelines.map(p => (
                       <button
                         key={p.id}
