@@ -15,6 +15,7 @@ import invitesRouter from './routes/invites.js';
 import allocationsRouter from './routes/allocations.js';
 import capacityCalendarRouter from './routes/capacity-calendar.js';
 import crmRouter from './routes/crm.js';
+import ricaChatRouter from './routes/rica-chat.js';
 
 // Middleware
 import { requireAuth } from './middleware/auth.js';
@@ -33,7 +34,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middlewares
 app.use(helmet());
-app.use(cors());
+app.use(cors({ exposedHeaders: ['X-Rica-Session-Id'] }));
 app.use(morgan('combined'));
 app.use(express.json());
 
@@ -59,6 +60,7 @@ app.use('/api/alerts', requireAuth, alertsRouter);
 app.use('/api/allocations', requireAuth, allocationsRouter);
 app.use('/api/capacity', requireAuth, capacityCalendarRouter);
 app.use('/api/crm', requireAuth, crmRouter);
+app.use('/api/rica/chat', requireAuth, ricaChatRouter);
 
 // Endpoint para disparar alertas manualmente (admin/teste)
 app.post('/api/alerts/send-daily', requireAuth, async (req, res, next) => {

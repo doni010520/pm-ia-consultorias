@@ -1432,22 +1432,27 @@ function DealCard({ deal, stage, onDragStart, onDragEnd, onClick, pipelines, use
           )}
         </div>
 
-        {/* Quick-edit actions — aparecem ao hover */}
-        <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Footer sempre visível: responsável + trocar funil */}
+        <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-slate-100">
           <button
             onClick={(e) => openMenu(e, 'owner')}
-            className="flex items-center gap-1 flex-1 min-w-0 text-[10px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded px-1.5 py-0.5 transition-colors"
-            title="Alterar responsável"
+            className={`group/chip flex items-center gap-1 flex-1 min-w-0 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors ${
+              deal.owner_id
+                ? 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+                : 'text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+            }`}
           >
             <User className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{deal.owner_name || 'Sem dono'}</span>
+            <span className="truncate">{deal.owner_name || 'Sem responsável'}</span>
+            <Pencil className="h-2.5 w-2.5 ml-auto flex-shrink-0 opacity-0 group-hover/chip:opacity-50 transition-opacity" />
           </button>
           <button
             onClick={(e) => openMenu(e, 'pipeline')}
-            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded px-1.5 py-0.5 transition-colors flex-shrink-0"
+            className="group/chip2 flex items-center gap-1 flex-shrink-0 rounded-md px-1.5 py-1 text-[10px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-100"
             title="Mover para outro funil"
           >
             <FolderKanban className="h-3 w-3" />
+            <Pencil className="h-2.5 w-2.5 opacity-0 group-hover/chip2:opacity-50 transition-opacity" />
           </button>
         </div>
       </div>
