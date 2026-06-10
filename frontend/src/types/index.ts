@@ -499,6 +499,37 @@ export interface JourneyDistribution {
   }[]
 }
 
+export interface ManagerOverview {
+  health: {
+    total_open: number
+    stopped_7d: number
+    stopped_30d: number
+    stopped_60d: number
+  }
+  accountability: {
+    executive: string
+    total_leads: number
+    stale_7d: number
+    stale_30d: number
+    last_activity: string
+  }[]
+  friction: {
+    stage: string
+    pipeline: string
+    lost: number
+    total: number
+    loss_rate: number
+  }[]
+  discipline: {
+    total: number
+    open_total: number
+    no_owner: number
+    open_no_owner: number
+    no_value: number
+    won_no_value: number
+  }
+}
+
 export interface DealProduct {
   id: string
   deal_id: string
