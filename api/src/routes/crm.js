@@ -1890,11 +1890,11 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
          AND d.organization_id = $1
          AND d.status = 'open'
          AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
-       RETURNING d.id`,
+       RETURNING d.id, c.name AS contact_name`,
       [orgId, cleanPhone, owner.id, req.body.assigned_via || null, req.body.assigned_by || null]
     );
 
-    // Journey + audit for each deal updated
+    // Journey + audit + atividade de contato para cada deal atualizado
     for (const row of result.rows) {
       leadJourney.recordOwnerAssigned({
         dealId: row.id, organizationId: orgId,
@@ -1902,6 +1902,18 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
         ownerId: owner.id, ownerName: owner.name,
       }).catch(() => {});
       dealAudit.recordOwnerAssigned(row.id, orgId, null, 'rica', owner.id, owner.name).catch(() => {});
+
+      // Registra atividade "entrar em contato" — aparece no CRM como tarefa pendente
+      query(
+        `INSERT INTO deal_activities (deal_id, user_id, type, description, scheduled_at, metadata)
+         VALUES ($1, $2, 'call', $3, NOW(), $4)`,
+        [
+          row.id,
+          owner.id,
+          `Entrar em contato com ${row.contact_name || 'o lead'}`,
+          { source: 'rica_transfer', assigned_via: req.body.assigned_via || 'notificar_equipe' },
+        ]
+      ).catch(() => {});
     }
 
     res.json({
