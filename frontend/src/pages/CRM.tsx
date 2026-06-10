@@ -290,11 +290,10 @@ export default function CRM() {
       <div className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">CRM</h1>
             {/* Pipeline Selector Dropdown */}
             {hasPipelines && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Funil</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Funil</span>
                 <div className="relative" ref={pipelineDropdownRef}>
                 <button
                   onClick={() => setShowPipelineDropdown(!showPipelineDropdown)}
