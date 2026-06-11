@@ -34,7 +34,7 @@ function ToolChip({
   invocation: ToolInvocation
   onConfirm: (approved: boolean) => void
 }) {
-  const { toolName, state, result, args } = invocation
+  const { toolName, state, result } = invocation
 
   const label = toolName.replace(/_/g, ' ')
 
