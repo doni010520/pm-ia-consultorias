@@ -17,14 +17,15 @@ export function buildRicaTools(user) {
   // ── CRM — LEITURA ───────────────────────────────────────────────────────
 
   const search_deals = tool({
-    description: 'Busca leads/deals pelo nome do contato, empresa ou telefone. Use antes de qualquer ação em um lead.',
+    description: 'Busca leads/deals por nome/empresa/telefone e/ou filtros. Para "meus leads"/"minha carteira" use owner_id com o id do usuário logado. Use antes de qualquer ação em um lead.',
     parameters: z.object({
-      search: z.string().describe('Nome do contato, empresa ou parte do telefone'),
+      search: z.string().optional().describe('Nome do contato, empresa ou parte do telefone. Omita para listar sem busca textual (ex: ao filtrar só por owner_id).'),
+      owner_id: z.string().optional().describe('ID do responsável (owner). Para "meus leads", passe o user_id do usuário logado.'),
       status: z.enum(['open', 'won', 'lost']).optional().describe('Filtrar por status'),
       pipeline_id: z.string().optional().describe('ID do funil para filtrar'),
       limit: z.number().int().min(1).max(20).optional().default(10),
     }),
-    execute: async ({ search, status, pipeline_id, limit }) => {
+    execute: async ({ search, owner_id, status, pipeline_id, limit }) => {
       let sql = `
         SELECT d.id, d.title, d.contact_name, d.contact_phone, d.company_name,
                d.status, d.temperature, d.value,
@@ -43,6 +44,7 @@ export function buildRicaTools(user) {
         params.push(`%${search}%`);
         idx++;
       }
+      if (owner_id) { sql += ` AND d.owner_id = $${idx++}`; params.push(owner_id); }
       if (status) { sql += ` AND d.status = $${idx++}`; params.push(status); }
       if (pipeline_id) { sql += ` AND d.pipeline_id = $${idx++}`; params.push(pipeline_id); }
       sql += ` ORDER BY d.updated_at DESC LIMIT $${idx}`;

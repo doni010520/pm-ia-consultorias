@@ -23,6 +23,38 @@ const STAGE_ID = 'stage-001'
 
 // ─── move_to_stage ────────────────────────────────────────────────────────────
 
+describe('search_deals', () => {
+  let tools
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    tools = buildRicaTools(FAKE_USER)
+  })
+
+  it('"meus leads" — filtra por owner_id e organization_id', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'deal-1', contact_name: 'Cliente A' }] })
+
+    const result = await tools.search_deals.execute({ owner_id: FAKE_USER.id, status: 'open' })
+
+    expect(result.count).toBe(1)
+    const call = query.mock.calls[0]
+    expect(call[0]).toContain('d.owner_id =')
+    expect(call[1]).toContain('org-aaa')   // org isolation sempre presente
+    expect(call[1]).toContain('user-111')  // owner = usuário logado
+  })
+
+  it('busca textual funciona sem owner_id', async () => {
+    query.mockResolvedValueOnce({ rows: [] })
+
+    await tools.search_deals.execute({ search: 'João' })
+
+    const call = query.mock.calls[0]
+    expect(call[0]).toContain('ILIKE')
+    expect(call[1]).toContain('%João%')
+    expect(call[0]).not.toContain('d.owner_id =')
+  })
+})
+
 describe('move_to_stage', () => {
   let tools
 
