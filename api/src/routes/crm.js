@@ -1890,11 +1890,11 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
          AND d.organization_id = $1
          AND d.status = 'open'
          AND REGEXP_REPLACE(c.phone, '\\D', '', 'g') = $2
-       RETURNING d.id`,
+       RETURNING d.id, c.name AS contact_name`,
       [orgId, cleanPhone, owner.id, req.body.assigned_via || null, req.body.assigned_by || null]
     );
 
-    // Journey + audit for each deal updated
+    // Journey + audit + atividade de contato para cada deal atualizado
     for (const row of result.rows) {
       leadJourney.recordOwnerAssigned({
         dealId: row.id, organizationId: orgId,
@@ -1902,6 +1902,18 @@ router.post('/deals/assign-owner-by-phone', async (req, res, next) => {
         ownerId: owner.id, ownerName: owner.name,
       }).catch(() => {});
       dealAudit.recordOwnerAssigned(row.id, orgId, null, 'rica', owner.id, owner.name).catch(() => {});
+
+      // Registra atividade "entrar em contato" — aparece no CRM como tarefa pendente
+      query(
+        `INSERT INTO deal_activities (deal_id, user_id, type, description, scheduled_at, metadata)
+         VALUES ($1, $2, 'call', $3, NOW(), $4)`,
+        [
+          row.id,
+          owner.id,
+          `Entrar em contato com ${row.contact_name || 'o lead'}`,
+          { source: 'rica_transfer', assigned_via: req.body.assigned_via || 'notificar_equipe' },
+        ]
+      ).catch(() => {});
     }
 
     res.json({
@@ -2640,6 +2652,118 @@ router.get('/journey/distribution', async (req, res, next) => {
         pipeline: r.pipeline,
         leads: parseInt(r.leads),
       })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// COCKPIT DO GESTOR
+// ============================================
+
+/**
+ * GET /api/crm/manager/overview
+ * Painel de controle do gestor: saúde do pipeline, accountability por executivo,
+ * gargalos de atrito e disciplina de dados. Sempre relativo a NOW().
+ */
+router.get('/manager/overview', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+
+    const [healthResult, accountabilityResult, frictionResult, disciplineResult] = await Promise.all([
+      // 1. Saúde do pipeline
+      query(
+        `SELECT
+          COUNT(*) FILTER (WHERE status = 'open') AS total_open,
+          COUNT(*) FILTER (WHERE status = 'open' AND updated_at < NOW() - INTERVAL '7 days') AS stopped_7d,
+          COUNT(*) FILTER (WHERE status = 'open' AND updated_at < NOW() - INTERVAL '30 days') AS stopped_30d,
+          COUNT(*) FILTER (WHERE status = 'open' AND updated_at < NOW() - INTERVAL '60 days') AS stopped_60d
+         FROM deals WHERE organization_id = $1`,
+        [orgId]
+      ),
+
+      // 2. Accountability: executivos com leads parados
+      query(
+        `SELECT
+          u.name AS executive,
+          COUNT(*) AS total_leads,
+          COUNT(*) FILTER (WHERE d.updated_at < NOW() - INTERVAL '7 days') AS stale_7d,
+          COUNT(*) FILTER (WHERE d.updated_at < NOW() - INTERVAL '30 days') AS stale_30d,
+          MAX(d.updated_at) AS last_activity
+         FROM deals d
+         JOIN users u ON u.id = d.owner_id
+         WHERE d.organization_id = $1 AND d.status = 'open'
+         GROUP BY u.id, u.name
+         ORDER BY stale_7d DESC, total_leads DESC`,
+        [orgId]
+      ),
+
+      // 3. Gargalos: etapas com maior taxa de perda
+      query(
+        `SELECT
+          ps.name AS stage,
+          p.name AS pipeline,
+          COUNT(*) FILTER (WHERE d.status = 'lost') AS lost,
+          COUNT(*) AS total,
+          ROUND(COUNT(*) FILTER (WHERE d.status = 'lost') * 100.0 / NULLIF(COUNT(*), 0)) AS loss_rate
+         FROM deals d
+         JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
+         JOIN pipelines p ON p.id = d.pipeline_id
+         WHERE d.organization_id = $1
+         GROUP BY ps.id, ps.name, p.name
+         HAVING COUNT(*) >= 3 AND COUNT(*) FILTER (WHERE d.status = 'lost') > 0
+         ORDER BY loss_rate DESC, lost DESC
+         LIMIT 8`,
+        [orgId]
+      ),
+
+      // 4. Disciplina de dados
+      query(
+        `SELECT
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status = 'open') AS open_total,
+          COUNT(*) FILTER (WHERE owner_id IS NULL) AS no_owner,
+          COUNT(*) FILTER (WHERE owner_id IS NULL AND status = 'open') AS open_no_owner,
+          COUNT(*) FILTER (WHERE value IS NULL OR value = 0) AS no_value,
+          COUNT(*) FILTER (WHERE status = 'won' AND (value IS NULL OR value = 0)) AS won_no_value
+         FROM deals WHERE organization_id = $1`,
+        [orgId]
+      ),
+    ]);
+
+    const h = healthResult.rows[0] || {};
+    const d = disciplineResult.rows[0] || {};
+
+    res.json({
+      health: {
+        total_open: parseInt(h.total_open || 0),
+        stopped_7d: parseInt(h.stopped_7d || 0),
+        stopped_30d: parseInt(h.stopped_30d || 0),
+        stopped_60d: parseInt(h.stopped_60d || 0),
+      },
+      accountability: accountabilityResult.rows.map(r => ({
+        executive: r.executive,
+        total_leads: parseInt(r.total_leads),
+        stale_7d: parseInt(r.stale_7d),
+        stale_30d: parseInt(r.stale_30d),
+        last_activity: r.last_activity,
+      })),
+      friction: frictionResult.rows.map(r => ({
+        stage: r.stage,
+        pipeline: r.pipeline,
+        lost: parseInt(r.lost),
+        total: parseInt(r.total),
+        loss_rate: parseInt(r.loss_rate || 0),
+      })),
+      discipline: {
+        total: parseInt(d.total || 0),
+        open_total: parseInt(d.open_total || 0),
+        no_owner: parseInt(d.no_owner || 0),
+        open_no_owner: parseInt(d.open_no_owner || 0),
+        no_value: parseInt(d.no_value || 0),
+        won_no_value: parseInt(d.won_no_value || 0),
+      },
     });
   } catch (error) {
     next(error);

@@ -1,211 +1,285 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-  Users, UserX, UserCheck, AlertTriangle, Filter, ArrowRight, Target, Route,
+  AlertTriangle, Clock, UserX, Target, TrendingDown,
+  Database, CheckCircle2, ArrowRight,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
 
-const PERIOD_LABEL: Record<string, string> = {
-  '7d': 'últimos 7 dias',
-  '30d': 'últimos 30 dias',
-  '90d': 'últimos 90 dias',
-  all: 'todo o período',
+function pct(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 100) : 0
+}
+
+function daysSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+}
+
+function StaleBadge({ days }: { days: number }) {
+  if (days === 0) return <span className="text-emerald-600 font-medium">0</span>
+  if (days <= 3) return <span className="text-amber-500 font-medium">{days}</span>
+  return <span className="text-red-500 font-bold">{days}</span>
 }
 
 export default function Overview() {
   const navigate = useNavigate()
-  const [period, setPeriod] = useState<string>('30d')
-
-  const dateRange = () => {
-    const to = new Date().toISOString()
-    const from = new Date()
-    if (period === '7d') from.setDate(from.getDate() - 7)
-    else if (period === '30d') from.setDate(from.getDate() - 30)
-    else if (period === '90d') from.setDate(from.getDate() - 90)
-    else return {}
-    return { from: from.toISOString(), to }
-  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm-overview-distribution', period],
-    queryFn: () => crmApi.journey.distribution(dateRange()),
+    queryKey: ['crm-manager-overview'],
+    queryFn: () => crmApi.manager.overview(),
+    refetchInterval: 5 * 60 * 1000,
   })
 
-  const total = data?.total_leads ?? 0
-  const undistributed = data?.undistributed ?? 0
-  const distributed = data?.distributed ?? 0
-  const undistPct = total > 0 ? Math.round((undistributed / total) * 100) : 0
-  const distPct = total > 0 ? Math.round((distributed / total) * 100) : 0
-  const byExec = data?.by_executive ?? []
-  const maxExec = byExec.reduce((m, e) => Math.max(m, e.leads), 0)
-  const undistByPipeline = data?.undistributed_by_pipeline ?? []
+  if (isLoading) {
+    return (
+      <PageContainer>
+        <div className="flex justify-center py-24"><LoadingSpinner /></div>
+      </PageContainer>
+    )
+  }
+
+  const health = data?.health ?? { total_open: 0, stopped_7d: 0, stopped_30d: 0, stopped_60d: 0 }
+  const accountability = data?.accountability ?? []
+  const friction = data?.friction ?? []
+  const discipline = data?.discipline ?? { total: 0, open_total: 0, no_owner: 0, open_no_owner: 0, no_value: 0, won_no_value: 0 }
+
+  const healthPct7 = pct(health.stopped_7d, health.total_open)
+  const noOwnerPct = pct(discipline.open_no_owner, discipline.open_total)
+  const noValuePct = pct(discipline.no_value, discipline.total)
 
   return (
     <PageContainer>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Visão Geral — Comercial</h1>
-          <p className="text-sm text-slate-500">Como está a entrada e a distribuição dos seus leads</p>
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-slate-900">Cockpit do Gestor</h1>
+        <p className="text-sm text-slate-500">O que está travado, quem está atrasado e onde os leads morrem</p>
+      </div>
+
+      {/* ── 1. SAÚDE DO PIPELINE ────────────────────────────── */}
+      <div className="mb-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+          Saúde do pipeline
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Target className="h-4 w-4 text-slate-400" />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Abertos</span>
+            </div>
+            <p className="text-2xl font-bold text-slate-900">{health.total_open}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">leads em andamento</p>
+          </CardContent>
+        </Card>
+
+        <Card className={healthPct7 >= 50 ? 'border-amber-300' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="h-4 w-4 text-amber-400" />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">+7 dias parados</span>
+            </div>
+            <p className={`text-2xl font-bold ${healthPct7 >= 50 ? 'text-amber-600' : 'text-slate-700'}`}>
+              {health.stopped_7d}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{healthPct7}% dos abertos</p>
+          </CardContent>
+        </Card>
+
+        <Card className={health.stopped_30d > 0 ? 'border-orange-200' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="h-4 w-4 text-orange-400" />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">+30 dias parados</span>
+            </div>
+            <p className={`text-2xl font-bold ${health.stopped_30d > 0 ? 'text-orange-600' : 'text-slate-700'}`}>
+              {health.stopped_30d}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{pct(health.stopped_30d, health.total_open)}% dos abertos</p>
+          </CardContent>
+        </Card>
+
+        <Card className={health.stopped_60d > 0 ? 'border-red-300' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">+60 dias parados</span>
+            </div>
+            <p className={`text-2xl font-bold ${health.stopped_60d > 0 ? 'text-red-600' : 'text-slate-700'}`}>
+              {health.stopped_60d}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">esquecidos</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── 2+3. ACCOUNTABILITY + GARGALOS ──────────────────── */}
+      <div className="grid lg:grid-cols-3 gap-5 mb-6">
+
+        {/* Accountability */}
+        <div className="lg:col-span-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+            Responsabilidade por executivo
+          </p>
+          <Card>
+            <CardContent className="p-0">
+              {accountability.length === 0 ? (
+                <p className="text-sm text-slate-400 py-8 text-center">Nenhum lead distribuído ainda.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="text-left text-[10px] font-semibold uppercase text-slate-400 px-4 py-2.5">Executivo</th>
+                      <th className="text-right text-[10px] font-semibold uppercase text-slate-400 px-3 py-2.5">Abertos</th>
+                      <th className="text-right text-[10px] font-semibold uppercase text-slate-400 px-3 py-2.5">+7d parados</th>
+                      <th className="text-right text-[10px] font-semibold uppercase text-slate-400 px-3 py-2.5">+30d parados</th>
+                      <th className="text-right text-[10px] font-semibold uppercase text-slate-400 px-4 py-2.5">Última mov.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accountability.map((exec) => (
+                      <tr key={exec.executive} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="px-4 py-2.5 font-medium text-slate-800">{exec.executive}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600">{exec.total_leads}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <StaleBadge days={exec.stale_7d} />
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {exec.stale_30d > 0
+                            ? <span className="text-red-600 font-bold">{exec.stale_30d}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-400 text-xs">
+                          {exec.last_activity
+                            ? `${daysSince(exec.last_activity)}d atrás`
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-slate-400" />
-          <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7d">Últimos 7 dias</SelectItem>
-              <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value="90d">Últimos 90 dias</SelectItem>
-              <SelectItem value="all">Todo período</SelectItem>
-            </SelectContent>
-          </Select>
+
+        {/* Gargalos */}
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+            Onde os leads morrem
+          </p>
+          <Card>
+            <CardContent className="p-4">
+              {friction.length === 0 ? (
+                <p className="text-sm text-slate-400 py-8 text-center">Nenhum gargalo identificado.</p>
+              ) : (
+                <div className="space-y-3">
+                  {friction.map((f) => (
+                    <div key={`${f.pipeline}-${f.stage}`}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-700 truncate">{f.stage}</p>
+                          <p className="text-[10px] text-slate-400 truncate">{f.pipeline}</p>
+                        </div>
+                        <span className={`text-sm font-bold flex-shrink-0 ml-2 ${
+                          f.loss_rate >= 60 ? 'text-red-600' :
+                          f.loss_rate >= 35 ? 'text-orange-500' : 'text-amber-500'
+                        }`}>
+                          {f.loss_rate}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            f.loss_rate >= 60 ? 'bg-red-400' :
+                            f.loss_rate >= 35 ? 'bg-orange-400' : 'bg-amber-400'
+                          }`}
+                          style={{ width: `${f.loss_rate}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{f.lost} de {f.total} perdidos</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-16"><LoadingSpinner /></div>
-      ) : (
-        <>
-          {/* KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <Card>
-              <CardContent className="p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  <Users className="h-4 w-4 text-slate-400" />
-                  <span className="text-xs text-slate-500 uppercase tracking-wider">Leads no período</span>
-                </div>
-                <p className="text-3xl font-bold text-slate-900">{total}</p>
-                <p className="text-xs text-slate-400 mt-0.5">{PERIOD_LABEL[period]}</p>
-              </CardContent>
-            </Card>
-
-            <Card className={undistPct >= 40 ? 'border-red-200' : undistPct >= 15 ? 'border-amber-200' : ''}>
-              <CardContent className="p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  {undistPct >= 40
-                    ? <AlertTriangle className="h-4 w-4 text-red-500" />
-                    : <UserX className="h-4 w-4 text-amber-500" />}
-                  <span className="text-xs text-slate-500 uppercase tracking-wider">Sem executivo</span>
-                </div>
-                <p className={`text-3xl font-bold ${undistPct >= 40 ? 'text-red-600' : 'text-amber-600'}`}>
-                  {undistributed}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">{undistPct}% dos leads ainda não foram distribuídos</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  <UserCheck className="h-4 w-4 text-emerald-500" />
-                  <span className="text-xs text-slate-500 uppercase tracking-wider">Distribuídos</span>
-                </div>
-                <p className="text-3xl font-bold text-emerald-600">{distributed}</p>
-                <p className="text-xs text-slate-400 mt-0.5">{distPct}% encaminhados a executivos</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-6">
-            {/* Leads por executivo */}
-            <div className="lg:col-span-2">
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-sm font-semibold text-slate-700">Leads por executivo</h2>
-                    <button
-                      onClick={() => navigate('/crm/journey')}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                    >
-                      Ver jornada completa <ArrowRight className="h-3 w-3" />
-                    </button>
-                  </div>
-                  {byExec.length === 0 ? (
-                    <p className="text-sm text-slate-400 py-8 text-center">Nenhum lead distribuído no período.</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {byExec.map(e => (
-                        <div key={e.executive} className="space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-slate-700">{e.executive}</span>
-                            <span className="text-slate-400">
-                              <span className="font-semibold text-slate-600">{e.leads}</span> leads
-                              {e.open > 0 && <> · {e.open} em aberto</>}
-                              {e.lost > 0 && <> · <span className="text-red-400">{e.lost} perdidos</span></>}
-                            </span>
-                          </div>
-                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-indigo-500 rounded-full"
-                              style={{ width: `${maxExec > 0 ? (e.leads / maxExec) * 100 : 0}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+      {/* ── 4. DISCIPLINA DE DADOS ───────────────────────────── */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+        Disciplina de dados
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Card className={noOwnerPct >= 30 ? 'border-red-200' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <UserX className={`h-4 w-4 ${noOwnerPct >= 30 ? 'text-red-400' : 'text-slate-400'}`} />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Sem dono</span>
             </div>
+            <p className={`text-2xl font-bold ${noOwnerPct >= 30 ? 'text-red-600' : 'text-slate-700'}`}>
+              {discipline.open_no_owner}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{noOwnerPct}% dos abertos</p>
+          </CardContent>
+        </Card>
 
-            {/* Não distribuídos: onde estão parados */}
-            <div>
-              <Card>
-                <CardContent className="p-5">
-                  <h2 className="text-sm font-semibold text-slate-700 mb-4">Leads parados (sem executivo)</h2>
-                  {undistByPipeline.length === 0 ? (
-                    <p className="text-sm text-slate-400 py-8 text-center">Tudo distribuído. 🎉</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {undistByPipeline.map(p => (
-                        <div key={p.pipeline} className="flex items-center justify-between p-2.5 rounded-lg bg-amber-50 border border-amber-100">
-                          <span className="text-xs font-medium text-slate-700 truncate">{p.pipeline}</span>
-                          <span className="text-sm font-bold text-amber-600 flex-shrink-0 ml-2">{p.leads}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => navigate('/crm')}
-                    className="mt-4 w-full flex items-center justify-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg py-2 transition-colors"
-                  >
-                    <Target className="h-3.5 w-3.5" /> Abrir o CRM
-                  </button>
-                </CardContent>
-              </Card>
+        <Card className={noValuePct >= 50 ? 'border-amber-200' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingDown className={`h-4 w-4 ${noValuePct >= 50 ? 'text-amber-500' : 'text-slate-400'}`} />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Sem valor</span>
             </div>
-          </div>
+            <p className={`text-2xl font-bold ${noValuePct >= 50 ? 'text-amber-600' : 'text-slate-700'}`}>
+              {discipline.no_value}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{noValuePct}% do total</p>
+          </CardContent>
+        </Card>
 
-          {/* Atalhos */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6">
-            <button onClick={() => navigate('/crm')} className="flex items-center gap-2 p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm transition-all text-left">
-              <Target className="h-5 w-5 text-indigo-500" />
-              <div>
-                <p className="text-sm font-medium text-slate-800">CRM</p>
-                <p className="text-[11px] text-slate-400">Funis e negócios</p>
-              </div>
-            </button>
-            <button onClick={() => navigate('/crm/journey')} className="flex items-center gap-2 p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm transition-all text-left">
-              <Route className="h-5 w-5 text-indigo-500" />
-              <div>
-                <p className="text-sm font-medium text-slate-800">Jornada do Lead</p>
-                <p className="text-[11px] text-slate-400">Funil e origem</p>
-              </div>
-            </button>
-            <button onClick={() => navigate('/rica')} className="flex items-center gap-2 p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm transition-all text-left">
-              <Users className="h-5 w-5 text-indigo-500" />
-              <div>
-                <p className="text-sm font-medium text-slate-800">Rica AI</p>
-                <p className="text-[11px] text-slate-400">Desempenho do bot</p>
-              </div>
-            </button>
-          </div>
-        </>
-      )}
+        <Card className={discipline.won_no_value > 0 ? 'border-orange-200' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Database className={`h-4 w-4 ${discipline.won_no_value > 0 ? 'text-orange-400' : 'text-slate-400'}`} />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Ganhos sem $$</span>
+            </div>
+            <p className={`text-2xl font-bold ${discipline.won_no_value > 0 ? 'text-orange-600' : 'text-slate-700'}`}>
+              {discipline.won_no_value}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">não contabilizados</p>
+          </CardContent>
+        </Card>
+
+        <Card className={discipline.total > 0 && noOwnerPct < 15 && noValuePct < 30 ? 'border-emerald-200' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle2 className={`h-4 w-4 ${noOwnerPct < 15 && noValuePct < 30 ? 'text-emerald-500' : 'text-slate-400'}`} />
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Total de leads</span>
+            </div>
+            <p className="text-2xl font-bold text-slate-700">{discipline.total}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{discipline.open_total} em aberto</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Atalhos */}
+      <div className="flex gap-3 flex-wrap">
+        <button
+          onClick={() => navigate('/crm')}
+          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-100 bg-indigo-50 rounded-lg px-3 py-2 transition-colors"
+        >
+          <Target className="h-3.5 w-3.5" /> Abrir CRM <ArrowRight className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => navigate('/crm/journey')}
+          className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg px-3 py-2 transition-colors"
+        >
+          Ver Jornada do Lead <ArrowRight className="h-3 w-3" />
+        </button>
+      </div>
     </PageContainer>
   )
 }

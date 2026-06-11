@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, createPortal } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Search, Plus, LayoutGrid, List, Phone,
@@ -10,6 +10,7 @@ import {
   Filter, Pencil, BarChart3, Target, AlertTriangle,
   Bot, History, Route, ChevronUp, ArrowDownUp,
   Paperclip, CheckSquare, FileSignature, Download, Loader2,
+  FolderKanban, UserX,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -25,10 +26,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { crmApi } from '@/services/api'
+import { crmApi, usersApi } from '@/services/api'
 import type {
-  Deal, PipelineStage, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
+  Deal, PipelineStage, Pipeline, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
 } from '@/types'
+
+type CrmUser = { id: string; name: string; is_active: boolean }
 
 // ============================================
 // Utility Functions
@@ -203,6 +206,23 @@ export default function CRM() {
     })
     return Array.from(map, ([id, name]) => ({ id, name }))
   }, [allDeals])
+
+  // Users for quick-edit on card
+  const { data: usersData } = useQuery({
+    queryKey: ['crm-users'],
+    queryFn: () => usersApi.list(),
+  })
+  const allUsers: CrmUser[] = (usersData?.users ?? []).filter(u => u.is_active)
+
+  // Quick update: owner or pipeline from card
+  const quickUpdateMutation = useMutation({
+    mutationFn: ({ dealId, data }: { dealId: string; data: Record<string, unknown> }) =>
+      crmApi.deals.update(dealId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm-deals'] })
+      queryClient.invalidateQueries({ queryKey: ['crm-manager-overview'] })
+    },
+  })
 
   // Filter and sort deals
   const filteredDeals = useMemo(() => {
@@ -656,6 +676,9 @@ export default function CRM() {
           onDealClick={setSelectedDealId}
           onMoveDeal={(dealId, stageId) => moveDealMutation.mutate({ dealId, stageId })}
           pipelineId={selectedPipelineId}
+          pipelines={pipelines}
+          users={allUsers}
+          onQuickUpdate={(dealId, data) => quickUpdateMutation.mutate({ dealId, data })}
         />
       )}
 
@@ -1111,7 +1134,7 @@ function DashboardView({ stages, openDeals, wonDeals, lostDeals, stats, onDealCl
 function KanbanBoard({
   stages, wonStage, lostStage, deals, wonDeals, lostDeals,
   wonExpanded, lostExpanded, onToggleWon, onToggleLost,
-  onDealClick, onMoveDeal, pipelineId,
+  onDealClick, onMoveDeal, pipelineId, pipelines, users, onQuickUpdate,
 }: {
   stages: PipelineStage[]
   wonStage: PipelineStage | undefined
@@ -1126,6 +1149,9 @@ function KanbanBoard({
   onDealClick: (id: string) => void
   onMoveDeal: (dealId: string, stageId: string) => void
   pipelineId: string | null
+  pipelines: Pipeline[]
+  users: CrmUser[]
+  onQuickUpdate: (dealId: string, data: Record<string, unknown>) => void
 }) {
   const queryClient = useQueryClient()
   const [dragDealId, setDragDealId] = useState<string | null>(null)
@@ -1266,6 +1292,9 @@ function KanbanBoard({
                   onDragStart={() => setDragDealId(deal.id)}
                   onDragEnd={handleDragEnd}
                   onClick={() => onDealClick(deal.id)}
+                  pipelines={pipelines}
+                  users={users}
+                  onQuickUpdate={onQuickUpdate}
                 />
               ))}
               {stageDeals.length === 0 && (
@@ -1338,46 +1367,154 @@ function KanbanBoard({
 // DEAL CARD (Kanban)
 // ============================================
 
-function DealCard({ deal, stage, onDragStart, onDragEnd, onClick }: {
+type QuickEditMenu = { type: 'owner' | 'pipeline'; top: number; left: number; right?: number } | null
+
+function DealCard({ deal, stage, onDragStart, onDragEnd, onClick, pipelines, users, onQuickUpdate }: {
   deal: Deal; stage: PipelineStage; onDragStart: () => void; onDragEnd: () => void; onClick: () => void
+  pipelines: Pipeline[]; users: CrmUser[]; onQuickUpdate: (dealId: string, data: Record<string, unknown>) => void
 }) {
   const agingClass = getAgingBorderClass(deal, stage)
   const daysInStage = deal.days_in_stage ?? daysSince(deal.stage_entered_at)
+  const [quickMenu, setQuickMenu] = useState<QuickEditMenu>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!quickMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setQuickMenu(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [quickMenu])
+
+  function openMenu(e: React.MouseEvent, type: 'owner' | 'pipeline') {
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    if (type === 'owner') {
+      setQuickMenu({ type, top: rect.bottom + 4, left: rect.left })
+    } else {
+      setQuickMenu({ type, top: rect.bottom + 4, right: window.innerWidth - rect.right, left: rect.right - 160 })
+    }
+  }
 
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onClick}
-      className={`bg-white rounded-md border border-slate-200/80 p-3 cursor-pointer border-l-[3px] ${agingClass} hover:shadow-md hover:-translate-y-px transition-all duration-150`}
-    >
-      {deal.contact_name ? (
-        <>
-          <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.contact_name}</p>
-          <p className="text-xs text-slate-400 mt-0.5 truncate">
-            {deal.title}{deal.company_name ? ` · ${deal.company_name}` : ''}
-          </p>
-        </>
-      ) : (
-        <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.title}</p>
-      )}
-      {deal.value != null && deal.value > 0 && (
-        <p className="text-sm font-medium text-emerald-600 mt-1.5">{formatCurrency(deal.value)}</p>
-      )}
-      <div className="flex items-center gap-2 mt-2 text-xs text-slate-400">
-        <span className={`h-2 w-2 rounded-full ${temperatureColor(deal.temperature)}`} />
-        <span className="flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {daysInStage}d
-        </span>
-        {deal.source && (
-          <span className="flex items-center gap-1 ml-auto">
-            {sourceIcon(deal.source)}
-          </span>
+    <>
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onClick={onClick}
+        className={`group bg-white rounded-md border border-slate-200/80 p-3 cursor-pointer border-l-[3px] ${agingClass} hover:shadow-md hover:-translate-y-px transition-all duration-150`}
+      >
+        {deal.contact_name ? (
+          <>
+            <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.contact_name}</p>
+            <p className="text-xs text-slate-400 mt-0.5 truncate">
+              {deal.title}{deal.company_name ? ` · ${deal.company_name}` : ''}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug">{deal.title}</p>
         )}
+        {deal.value != null && deal.value > 0 && (
+          <p className="text-sm font-medium text-emerald-600 mt-1.5">{formatCurrency(deal.value)}</p>
+        )}
+        <div className="flex items-center gap-2 mt-2 text-xs text-slate-400">
+          <span className={`h-2 w-2 rounded-full ${temperatureColor(deal.temperature)}`} />
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {daysInStage}d
+          </span>
+          {deal.source && (
+            <span className="flex items-center gap-1 ml-auto">
+              {sourceIcon(deal.source)}
+            </span>
+          )}
+        </div>
+
+        {/* Footer sempre visível: responsável + trocar funil */}
+        <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-slate-100">
+          <button
+            onClick={(e) => openMenu(e, 'owner')}
+            className={`group/chip flex items-center gap-1 flex-1 min-w-0 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors ${
+              deal.owner_id
+                ? 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+                : 'text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+            }`}
+          >
+            <User className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{deal.owner_name || 'Sem responsável'}</span>
+            <Pencil className="h-2.5 w-2.5 ml-auto flex-shrink-0 opacity-0 group-hover/chip:opacity-50 transition-opacity" />
+          </button>
+          <button
+            onClick={(e) => openMenu(e, 'pipeline')}
+            className="group/chip2 flex items-center gap-1 flex-shrink-0 rounded-md px-1.5 py-1 text-[10px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-100"
+            title="Mover para outro funil"
+          >
+            <FolderKanban className="h-3 w-3" />
+            <Pencil className="h-2.5 w-2.5 opacity-0 group-hover/chip2:opacity-50 transition-opacity" />
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* Dropdown renderizado fora do DOM do kanban para não ser cortado pelo overflow */}
+      {quickMenu && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: quickMenu.top, left: quickMenu.left, zIndex: 9999 }}
+          className="bg-white rounded-lg border border-slate-200 shadow-xl py-1 min-w-[180px] max-h-60 overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {quickMenu.type === 'owner' ? (
+            <>
+              <div className="px-2 py-1 border-b border-slate-100 sticky top-0 bg-white">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Responsável</p>
+              </div>
+              <button
+                onClick={() => { onQuickUpdate(deal.id, { owner_id: null }); setQuickMenu(null) }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${!deal.owner_id ? 'bg-slate-100 font-medium text-slate-800' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <UserX className="h-3 w-3 flex-shrink-0" />
+                <span>Sem responsável</span>
+                {!deal.owner_id && <Check className="h-3 w-3 ml-auto text-slate-500" />}
+              </button>
+              {users.map(u => (
+                <button
+                  key={u.id}
+                  onClick={() => { onQuickUpdate(deal.id, { owner_id: u.id }); setQuickMenu(null) }}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${deal.owner_id === u.id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <User className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{u.name}</span>
+                  {deal.owner_id === u.id && <Check className="h-3 w-3 ml-auto" />}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="px-2 py-1 border-b border-slate-100 sticky top-0 bg-white">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Mover para funil</p>
+              </div>
+              {pipelines.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    if (p.id !== deal.pipeline_id) onQuickUpdate(deal.id, { pipeline_id: p.id, pipeline_stage_id: null })
+                    setQuickMenu(null)
+                  }}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${deal.pipeline_id === p.id ? 'bg-slate-100 text-slate-800 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <FolderKanban className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{p.name}</span>
+                  {deal.pipeline_id === p.id && <Check className="h-3 w-3 ml-auto text-slate-500" />}
+                </button>
+              ))}
+            </>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 

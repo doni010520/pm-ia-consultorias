@@ -580,6 +580,12 @@ export const crmApi = {
     stats: () =>
       request<import('@/types').RicaStats>(`/api/crm/rica/stats${withOrg()}`),
   },
+
+  // Cockpit do Gestor
+  manager: {
+    overview: () =>
+      request<import('@/types').ManagerOverview>(`/api/crm/manager/overview${withOrg()}`),
+  },
 }
 
 // Transcriptions / Atas

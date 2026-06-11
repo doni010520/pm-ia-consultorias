@@ -24,6 +24,7 @@ import ProposalTemplates from '@/pages/ProposalTemplates'
 import Rica from '@/pages/Rica'
 import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
+import { RicaChat } from '@/components/rica-chat/RicaChat'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +78,7 @@ function ProtectedLayout() {
           <Route path="/crm/templates" element={<ProposalTemplates />} />
         </Routes>
       </div>
+      <RicaChat />
     </div>
   )
 }
