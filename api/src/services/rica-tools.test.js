@@ -55,6 +55,45 @@ describe('search_deals', () => {
   })
 })
 
+describe('relatorio_leads', () => {
+  let tools
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    tools = buildRicaTools(FAKE_USER)
+  })
+
+  it('GPS este mês via whatsapp — filtra funil + origem + mês e soma o total', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ funil: 'GPS', qtd: 16, sem_responsavel: 16 }] }) // agregado
+      .mockResolvedValueOnce({ rows: [{ contact_name: 'Regina', funil: 'GPS' }, { contact_name: 'Jr', funil: 'GPS' }] }) // lista
+
+    const result = await tools.relatorio_leads.execute({ period: 'mes', pipeline_name: 'GPS', source: 'whatsapp' })
+
+    expect(result.total).toBe(16)
+    expect(result.por_funil).toHaveLength(1)
+    expect(result.leads).toHaveLength(2)
+
+    const aggSql = query.mock.calls[0][0]
+    expect(aggSql).toContain("date_trunc('month', NOW())")
+    expect(aggSql).toContain('p.name ILIKE')
+    expect(aggSql).toContain('d.source ILIKE')
+    const aggParams = query.mock.calls[0][1]
+    expect(aggParams).toContain('org-aaa')
+    expect(aggParams).toContain('%GPS%')
+    expect(aggParams).toContain('%whatsapp%')
+  })
+
+  it('mês passado usa janela do mês anterior', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
+
+    await tools.relatorio_leads.execute({ period: 'mes_passado' })
+
+    const aggSql = query.mock.calls[0][0]
+    expect(aggSql).toContain("- INTERVAL '1 month'")
+  })
+})
+
 describe('move_to_stage', () => {
   let tools
 
