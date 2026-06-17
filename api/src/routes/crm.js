@@ -1810,7 +1810,8 @@ router.patch('/deals/:id/followup', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const { id } = req.params;
-    const { message_sent } = req.body;
+    const { message_sent, followup_text } = req.body;
+    const followupNote = message_sent || followup_text;
 
     // Incrementa followup_count e atualiza last_followup_at
     const result = await query(
@@ -1828,11 +1829,11 @@ router.patch('/deals/:id/followup', async (req, res, next) => {
     }
 
     // Registra como atividade
-    if (message_sent) {
+    if (followupNote) {
       await query(
         `INSERT INTO deal_activities (deal_id, organization_id, type, description)
          VALUES ($1, $2, 'followup', $3)`,
-        [id, orgId, `Follow-up #${result.rows[0].followup_count} enviado: ${String(message_sent).slice(0, 500)}`]
+        [id, orgId, `Follow-up #${result.rows[0].followup_count} enviado: ${String(followupNote).slice(0, 500)}`]
       );
     }
 
