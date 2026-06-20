@@ -192,10 +192,15 @@ router.post('/ask', async (req, res, next) => {
       return res.status(400).json({ error: { message: 'phone e message são obrigatórios' } });
     }
 
-    // Resolve membro do time pelo telefone (allowlist = quem tem users.whatsapp setado)
+    // Resolve membro do time pelo telefone (allowlist = quem tem users.whatsapp setado).
+    // Match TOLERANTE ao 9o digito: compara DDD (2 chars apos o 55) + ultimos 8 digitos.
     const u = await query(
       `SELECT id, name, email, role, organization_id FROM users
-       WHERE organization_id = $1 AND whatsapp = $2 AND is_active = true LIMIT 1`,
+       WHERE organization_id = $1 AND is_active = true AND whatsapp IS NOT NULL
+         AND right(regexp_replace(whatsapp, '\\D', '', 'g'), 8) = right(regexp_replace($2, '\\D', '', 'g'), 8)
+         AND substring(regexp_replace(whatsapp, '\\D', '', 'g') from 3 for 2)
+           = substring(regexp_replace($2, '\\D', '', 'g') from 3 for 2)
+       LIMIT 1`,
       [orgId, phone]
     );
     if (u.rows.length === 0) {
