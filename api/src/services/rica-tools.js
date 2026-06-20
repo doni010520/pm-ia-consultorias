@@ -757,6 +757,72 @@ export function buildRicaTools(user) {
     },
   });
 
+  // ── RELATÓRIO — ATENDIMENTOS NO WHATSAPP (conversas, não o funil) ──────────
+  const relatorio_atendimentos = tool({
+    description: 'Relatório de TODOS os atendimentos/conversas que chegaram pelo WhatsApp — todo mundo que falou com a Rica, INDEPENDENTE de ter virado card num funil específico. É DIFERENTE de relatorio_leads (que conta o CRM/funil). Use para "quantos leads chegaram no whatsapp essa semana", "quantos perguntaram sobre GPS", "quantos atendimentos hoje". O filtro "assunto" busca no que a pessoa escreveu na conversa (ex: "GPS" pega quem perguntou de GPS Padaria mesmo que ainda esteja em Entrada de Leads).',
+    parameters: z.object({
+      period: z.enum(['hoje', 'semana', 'mes', 'mes_passado', 'tudo']).optional().default('semana').describe('Período de chegada. "semana" = semana atual.'),
+      assunto: z.string().optional().describe('Tema/interesse para filtrar pelo que a pessoa escreveu, ex: "GPS". Omita para contar todos que chegaram.'),
+      limit: z.number().int().min(1).max(100).optional().default(50),
+    }),
+    execute: async ({ period = 'semana', assunto, limit = 50 }) => {
+      let dateCond = '';
+      switch (period) {
+        case 'hoje': dateCond = ` AND c.created_at >= date_trunc('day', NOW())`; break;
+        case 'semana': dateCond = ` AND c.created_at >= date_trunc('week', NOW())`; break;
+        case 'mes_passado': dateCond = ` AND c.created_at >= date_trunc('month', NOW()) - INTERVAL '1 month' AND c.created_at < date_trunc('month', NOW())`; break;
+        case 'tudo': dateCond = ''; break;
+        case 'mes':
+        default: dateCond = ` AND c.created_at >= date_trunc('month', NOW())`; break;
+      }
+
+      const params = [orgId];
+      let assuntoFilter = '';
+      if (assunto) { assuntoFilter = ` AND fm.primeira_msg ILIKE $2`; params.push(`%${assunto}%`); }
+
+      const baseCte = `
+        WITH novos AS (
+          SELECT c.id, c.name, c.phone, c.created_at
+          FROM contacts c
+          WHERE c.organization_id = $1${dateCond}
+        ),
+        fm AS (
+          SELECT DISTINCT ON (h.session_id) h.session_id, h.message->'data'->>'content' AS primeira_msg
+          FROM n8n_chat_histories h
+          JOIN novos n ON n.phone = h.session_id
+          WHERE h.message->>'type' = 'human'
+          ORDER BY h.session_id, h.id ASC
+        )`;
+
+      const totalRes = await query(
+        `${baseCte}
+         SELECT count(*) AS total
+         FROM novos n LEFT JOIN fm ON fm.session_id = n.phone
+         WHERE TRUE${assuntoFilter}`,
+        params
+      );
+
+      const listRes = await query(
+        `${baseCte}
+         SELECT n.name, n.phone, n.created_at::date AS chegou_em, left(fm.primeira_msg, 120) AS primeira_msg
+         FROM novos n LEFT JOIN fm ON fm.session_id = n.phone
+         WHERE TRUE${assuntoFilter}
+         ORDER BY n.created_at DESC LIMIT $${params.length + 1}`,
+        [...params, limit]
+      );
+
+      const total = Number(totalRes.rows[0]?.total || 0);
+      return {
+        total,
+        assunto: assunto || '(todos)',
+        periodo: period,
+        atendimentos: listRes.rows,
+        mostrando: listRes.rows.length,
+        nota: 'Conta quem CHEGOU pelo WhatsApp (conversas), não o funil do CRM. Para o funil, use relatorio_leads.',
+      };
+    },
+  });
+
   return {
     search_deals,
     get_deal,
@@ -780,5 +846,6 @@ export function buildRicaTools(user) {
     get_team_capacity,
     get_user_calendar,
     relatorio_leads,
+    relatorio_atendimentos,
   };
 }

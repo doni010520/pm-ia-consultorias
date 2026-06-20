@@ -18,7 +18,7 @@ const HISTORY_LIMIT = 30;
 const READ_ONLY_TOOLS = [
   'search_deals', 'get_deal', 'list_pipelines', 'list_users', 'list_activities',
   'list_tasks', 'list_projects', 'get_project', 'search_atas', 'get_ata',
-  'get_team_capacity', 'get_user_calendar', 'relatorio_leads',
+  'get_team_capacity', 'get_user_calendar', 'relatorio_leads', 'relatorio_atendimentos',
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
