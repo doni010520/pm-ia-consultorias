@@ -684,16 +684,17 @@ export function buildRicaTools(user) {
 
   // ── RELATÓRIO — ENTRADA DE LEADS ─────────────────────────────────────────
   const relatorio_leads = tool({
-    description: 'Relatório de ENTRADA de leads por período, funil e origem. Responde perguntas como "quantos/quais leads da GPS chegaram este mês via Rica", "quais leads entraram esta semana", "quantos leads novos por funil". Origem "whatsapp" = leads que chegaram pela Rica do WhatsApp. Retorna o total, a quebra por funil e a lista dos leads.',
+    description: 'Relatório de ENTRADA de leads por período, funil, origem e executivo responsável. Responde "quantos leads da GPS chegaram este mês", "quantos leads do GPS foram enviados pro André essa semana", "quantos leads novos por funil". Origem "whatsapp" = leads que vieram pela Rica do WhatsApp. owner_name filtra pelo executivo dono do lead (ex: "André"). Retorna total, quebra por funil, quebra por responsável e a lista.',
     parameters: z.object({
-      period: z.enum(['hoje', 'semana', 'mes', 'mes_passado', 'tudo']).optional().default('mes').describe('Período. "mes" = mês atual (padrão).'),
+      period: z.enum(['hoje', 'semana', 'mes', 'mes_passado', 'tudo']).optional().default('mes').describe('Período. "semana" = semana atual, "mes" = mês atual (padrão).'),
       pipeline_name: z.string().optional().describe('Nome do funil para filtrar, ex: "GPS". Busca parcial.'),
+      owner_name: z.string().optional().describe('Nome do executivo/responsável dono do lead, ex: "André". Busca parcial. Use para "leads enviados pro <executivo>".'),
       source: z.string().optional().describe('Origem. Use "whatsapp" para leads que vieram pela Rica do WhatsApp.'),
       start_date: z.string().optional().describe('Data inicial ISO (sobrescreve period).'),
       end_date: z.string().optional().describe('Data final ISO (sobrescreve period).'),
       limit: z.number().int().min(1).max(100).optional().default(50).describe('Máximo de leads na lista.'),
     }),
-    execute: async ({ period = 'mes', pipeline_name, source, start_date, end_date, limit = 50 }) => {
+    execute: async ({ period = 'mes', pipeline_name, owner_name, source, start_date, end_date, limit = 50 }) => {
       const params = [orgId];
       let idx = 2;
       let dateCond = '';
@@ -711,6 +712,7 @@ export function buildRicaTools(user) {
         }
       }
       if (pipeline_name) { dateCond += ` AND p.name ILIKE $${idx++}`; params.push(`%${pipeline_name}%`); }
+      if (owner_name) { dateCond += ` AND u.name ILIKE $${idx++}`; params.push(`%${owner_name}%`); }
       if (source) { dateCond += ` AND d.source ILIKE $${idx++}`; params.push(`%${source}%`); }
 
       const where = `FROM deals d
@@ -727,6 +729,13 @@ export function buildRicaTools(user) {
         params
       );
 
+      const ownerAgg = await query(
+        `SELECT COALESCE(u.name, 'Sem responsável') AS responsavel, count(*) AS qtd
+         ${where}
+         GROUP BY u.name ORDER BY qtd DESC`,
+        params
+      );
+
       const listResult = await query(
         `SELECT d.contact_name, d.contact_phone, d.created_at::date AS entrou_em,
                 d.status, d.source, COALESCE(p.name, '(sem funil)') AS funil,
@@ -740,6 +749,7 @@ export function buildRicaTools(user) {
       return {
         total,
         por_funil: aggResult.rows,
+        por_responsavel: ownerAgg.rows,
         leads: listResult.rows,
         mostrando: listResult.rows.length,
         observacao: total > listResult.rows.length ? `Mostrando ${listResult.rows.length} de ${total}. Aumente o limit ou filtre para ver mais.` : undefined,
