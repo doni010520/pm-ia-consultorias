@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { streamText } from 'ai';
+import { streamText, generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { query } from '../services/database.js';
 import { buildSystemPrompt } from '../services/rica-system-prompt.js';
@@ -13,6 +13,13 @@ const openai = createOpenAI({
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const HISTORY_LIMIT = 30;
+
+// Ferramentas de SOMENTE LEITURA (copiloto via WhatsApp — sem ações de escrita)
+const READ_ONLY_TOOLS = [
+  'search_deals', 'get_deal', 'list_pipelines', 'list_users', 'list_activities',
+  'list_tasks', 'list_projects', 'get_project', 'search_atas', 'get_ata',
+  'get_team_capacity', 'get_user_calendar', 'relatorio_leads',
+];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,6 +175,56 @@ router.delete('/session/:id', async (req, res, next) => {
       [id, req.user.id]
     );
     res.json({ cleared: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── POST /ask — Rica copiloto via WhatsApp (não-streaming, somente leitura) ──
+// O bot chama este endpoint para CADA mensagem. Se o telefone for de um membro
+// do time (users.whatsapp), responde com dados do CRM; senão retorna is_team:false
+// e o bot segue o fluxo normal de atendimento ao lead.
+router.post('/ask', async (req, res, next) => {
+  try {
+    const orgId = req.user?.organization_id || req.organizationId || req.query.organization_id;
+    const { phone, message } = req.body || {};
+    if (!phone || !message) {
+      return res.status(400).json({ error: { message: 'phone e message são obrigatórios' } });
+    }
+
+    // Resolve membro do time pelo telefone (allowlist = quem tem users.whatsapp setado)
+    const u = await query(
+      `SELECT id, name, email, role, organization_id FROM users
+       WHERE organization_id = $1 AND whatsapp = $2 AND is_active = true LIMIT 1`,
+      [orgId, phone]
+    );
+    if (u.rows.length === 0) {
+      return res.json({ is_team: false });
+    }
+    const user = u.rows[0];
+
+    // Só ferramentas de leitura
+    const allTools = buildRicaTools(user);
+    const tools = {};
+    for (const name of READ_ONLY_TOOLS) {
+      if (allTools[name]) tools[name] = allTools[name];
+    }
+
+    const systemPrompt = (await buildSystemPrompt(user)) +
+      '\n\nCANAL: você está respondendo um MEMBRO DO TIME pelo WhatsApp (não é um cliente/lead). ' +
+      'Responda CURTO e direto, em formato de mensagem de WhatsApp (use no máximo *negrito*, sem tabelas). ' +
+      'Modo SOMENTE CONSULTA: você não executa ações de escrita por aqui — se pedirem para alterar algo, oriente a usar o app.';
+
+    const result = await generateText({
+      model: openai(MODEL),
+      system: systemPrompt,
+      messages: [{ role: 'user', content: String(message) }],
+      tools,
+      maxSteps: 6,
+      temperature: 0.3,
+    });
+
+    return res.json({ is_team: true, answer: result.text || 'Não consegui gerar uma resposta agora.' });
   } catch (error) {
     next(error);
   }
