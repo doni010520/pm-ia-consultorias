@@ -412,10 +412,10 @@ export const crmApi = {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
-    moveStage: (id: string, pipeline_stage_id: string) =>
+    moveStage: (id: string, pipeline_stage_id: string, lost_reason?: string) =>
       request<{ deal: import('@/types').Deal }>(`/api/crm/deals/${id}/stage`, {
         method: 'PATCH',
-        body: JSON.stringify({ pipeline_stage_id }),
+        body: JSON.stringify({ pipeline_stage_id, ...(lost_reason ? { lost_reason } : {}) }),
       }),
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/api/crm/deals/${id}`, { method: 'DELETE' }),

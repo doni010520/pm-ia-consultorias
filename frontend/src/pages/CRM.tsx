@@ -154,6 +154,11 @@ export default function CRM() {
   const [wonExpanded, setWonExpanded] = useState(false)
   const [lostExpanded, setLostExpanded] = useState(false)
 
+  // Motivo de perda — modal exibido ao mover um lead para a etapa de "perdido"
+  const LOSS_REASONS = ['Cliente optou por não realizar o projeto', 'Demora no follow', 'Fechou com outra empresa', 'Não gosto do produto/serviço', 'Preço', 'Sem retorno']
+  const [lostPrompt, setLostPrompt] = useState<{ dealId: string; stageId: string } | null>(null)
+  const [lostReason, setLostReason] = useState('')
+
   // List view sort
   const [listSort, setListSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'updated_at', dir: 'desc' })
 
@@ -264,8 +269,8 @@ export default function CRM() {
 
   // Move deal mutation
   const moveDealMutation = useMutation({
-    mutationFn: ({ dealId, stageId }: { dealId: string; stageId: string }) =>
-      crmApi.deals.moveStage(dealId, stageId),
+    mutationFn: ({ dealId, stageId, lostReason }: { dealId: string; stageId: string; lostReason?: string }) =>
+      crmApi.deals.moveStage(dealId, stageId, lostReason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm-deals', selectedPipelineId] })
       queryClient.invalidateQueries({ queryKey: ['crm-stats', selectedPipelineId] })
@@ -290,6 +295,16 @@ export default function CRM() {
   const wonStage = stages.find(s => s.is_won)
   const lostStage = stages.find(s => s.is_lost)
 
+  // Ao mover pra etapa de "perdido", pede o motivo antes de confirmar.
+  const attemptMove = (dealId: string, stageId: string) => {
+    if (lostStage && stageId === lostStage.id) {
+      setLostReason('')
+      setLostPrompt({ dealId, stageId })
+    } else {
+      moveDealMutation.mutate({ dealId, stageId })
+    }
+  }
+
   const openDeals = filteredDeals.filter(d => d.status === 'open')
   const wonDeals = filteredDeals.filter(d => d.status === 'won')
   const lostDeals = filteredDeals.filter(d => d.status === 'lost')
@@ -301,6 +316,36 @@ export default function CRM() {
 
   return (
     <PageContainer>
+      {lostPrompt && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setLostPrompt(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1">Motivo da perda</h3>
+            <p className="text-xs text-slate-500 mb-3">Por que esse lead foi perdido?</p>
+            <div className="space-y-1.5 mb-4">
+              {LOSS_REASONS.map(r => (
+                <button
+                  key={r}
+                  onClick={() => setLostReason(r)}
+                  className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${lostReason === r ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setLostPrompt(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+              <button
+                disabled={!lostReason}
+                onClick={() => { moveDealMutation.mutate({ dealId: lostPrompt.dealId, stageId: lostPrompt.stageId, lostReason }); setLostPrompt(null) }}
+                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg disabled:opacity-40 hover:bg-indigo-700"
+              >
+                Confirmar perda
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {/* ============================================ */}
       {/* HEADER SECTION */}
       {/* ============================================ */}
@@ -653,7 +698,7 @@ export default function CRM() {
           onToggleWon={() => setWonExpanded(!wonExpanded)}
           onToggleLost={() => setLostExpanded(!lostExpanded)}
           onDealClick={setSelectedDealId}
-          onMoveDeal={(dealId, stageId) => moveDealMutation.mutate({ dealId, stageId })}
+          onMoveDeal={(dealId, stageId) => attemptMove(dealId, stageId)}
           pipelineId={selectedPipelineId}
           pipelines={pipelines}
           users={allUsers}
@@ -687,9 +732,7 @@ export default function CRM() {
           dealId={selectedDealId}
           stages={stages}
           onClose={() => setSelectedDealId(null)}
-          onMoveDeal={(stageId) => {
-            moveDealMutation.mutate({ dealId: selectedDealId, stageId })
-          }}
+          onMoveDeal={(stageId) => attemptMove(selectedDealId, stageId)}
         />
       )}
 

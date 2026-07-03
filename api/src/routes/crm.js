@@ -14,6 +14,23 @@ function getOrgId(req) {
   return req.user?.organization_id || req.organizationId;
 }
 
+// Motivos de perda padrão (opções mostradas ao marcar um lead como perdido).
+const LOSS_REASONS = [
+  'Cliente optou por não realizar o projeto',
+  'Demora no follow',
+  'Fechou com outra empresa',
+  'Não gosto do produto/serviço',
+  'Preço',
+  'Sem retorno',
+];
+
+// Escopo de visibilidade: usuários 'member' (executivos) só veem os PRÓPRIOS
+// leads (owner_id = seu id), em qualquer funil. Admin/gestão veem tudo.
+// Requests sem usuário (bot/n8n via fallback de org) NÃO são escopadas.
+function isOwnerScoped(req) {
+  return !!(req.user && req.user.role === 'member');
+}
+
 // ============================================
 // AUTOMATION EXECUTION HELPER
 // ============================================
@@ -696,6 +713,12 @@ router.get('/deals', async (req, res, next) => {
       params.push(max_value);
     }
 
+    // Escopo por dono: executivo (member) só vê os próprios leads, em qualquer funil.
+    if (isOwnerScoped(req)) {
+      sql += ` AND d.owner_id = $${idx++}`;
+      params.push(req.user.id);
+    }
+
     // Sorting
     const allowedSorts = ['created_at', 'updated_at', 'value', 'stage_entered_at'];
     const sortColumn = allowedSorts.includes(sort_by) ? `d.${sort_by}` : 'd.updated_at';
@@ -869,6 +892,12 @@ router.get('/deals/:id', async (req, res, next) => {
     }
 
     const deal = dealResult.rows[0];
+
+    // Escopo por dono: executivo (member) não acessa lead que não é dele.
+    if (isOwnerScoped(req) && deal.owner_id !== req.user.id) {
+      return res.status(404).json({ error: { message: 'Deal nao encontrado' } });
+    }
+
     deal.days_in_stage = deal.days_in_stage ? Math.floor(deal.days_in_stage) : 0;
     deal.is_rotting = deal.stage_max_days
       ? deal.days_in_stage > deal.stage_max_days
@@ -1061,7 +1090,7 @@ router.patch('/deals/:id/stage', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const { id } = req.params;
-    const { pipeline_stage_id } = req.body;
+    const { pipeline_stage_id, lost_reason } = req.body;
 
     if (!pipeline_stage_id) {
       return res.status(400).json({ error: { message: 'pipeline_stage_id obrigatorio' } });
@@ -1083,11 +1112,16 @@ router.patch('/deals/:id/stage', async (req, res, next) => {
     }
 
     // Build status update
+    const params = [pipeline_stage_id, id];
     let statusUpdate = '';
     if (stage.is_won) {
       statusUpdate = `, status = 'won', won_date = NOW()`;
     } else if (stage.is_lost) {
       statusUpdate = `, status = 'lost', lost_date = NOW()`;
+      if (lost_reason) {
+        params.push(lost_reason);
+        statusUpdate += `, lost_reason = $${params.length}`;
+      }
     } else {
       statusUpdate = `, status = 'open'`;
     }
@@ -1095,7 +1129,7 @@ router.patch('/deals/:id/stage', async (req, res, next) => {
     const result = await query(
       `UPDATE deals SET pipeline_stage_id = $1, stage_entered_at = NOW()${statusUpdate}, updated_at = NOW()
        WHERE id = $2 RETURNING *`,
-      [pipeline_stage_id, id]
+      params
     );
 
     // Log activity
@@ -1130,6 +1164,11 @@ router.patch('/deals/:id/stage', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// Motivos de perda disponíveis (para o seletor ao marcar um lead como perdido)
+router.get('/loss-reasons', async (req, res) => {
+  res.json({ loss_reasons: LOSS_REASONS });
 });
 
 // Delete deal
@@ -1537,6 +1576,13 @@ router.get('/stats', async (req, res, next) => {
     const dealsPipelineFilter = pipeline_id ? ' AND d.pipeline_id = $2' : '';
     const baseParams = pipeline_id ? [orgId, pipeline_id] : [orgId];
 
+    // Escopo por dono: executivo (member) só vê métricas dos próprios leads.
+    const scoped = isOwnerScoped(req);
+    if (scoped) baseParams.push(req.user.id);
+    const oIdx = baseParams.length;                       // índice do param do dono (último)
+    const ofDeals = scoped ? ` AND owner_id = $${oIdx}` : '';   // tabela deals (sem alias)
+    const ofD = scoped ? ` AND d.owner_id = $${oIdx}` : '';     // alias d.
+
     const [dealsResult, stagesResult, recentResult, rottingResult, avgCloseResult] = await Promise.all([
       query(
         `SELECT
@@ -1547,7 +1593,7 @@ router.get('/stats', async (req, res, next) => {
            COALESCE(SUM(value) FILTER (WHERE status = 'won'), 0) as won_value,
            COUNT(*) FILTER (WHERE status = 'won' AND won_date >= NOW() - INTERVAL '30 days') as won_last_30d,
            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') as new_last_7d
-         FROM deals WHERE organization_id = $1${pipelineFilter}`,
+         FROM deals WHERE organization_id = $1${pipelineFilter}${ofDeals}`,
         baseParams
       ),
       query(
@@ -1559,7 +1605,7 @@ router.get('/stats', async (req, res, next) => {
                   0
                 ) as avg_days_in_stage
          FROM pipeline_stages ps
-         LEFT JOIN deals d ON d.pipeline_stage_id = ps.id AND d.status = 'open'
+         LEFT JOIN deals d ON d.pipeline_stage_id = ps.id AND d.status = 'open'${ofD}
          WHERE ps.organization_id = $1${pipelineStageFilter}
          GROUP BY ps.id, ps.name, ps.color, ps.position, ps.max_days
          ORDER BY ps.position`,
@@ -1570,7 +1616,7 @@ router.get('/stats', async (req, res, next) => {
          FROM deal_activities da
          JOIN deals d ON d.id = da.deal_id
          LEFT JOIN users u ON u.id = da.user_id
-         WHERE d.organization_id = $1${dealsPipelineFilter}
+         WHERE d.organization_id = $1${dealsPipelineFilter}${ofD}
          ORDER BY da.created_at DESC LIMIT 15`,
         baseParams
       ),
@@ -1578,7 +1624,7 @@ router.get('/stats', async (req, res, next) => {
         `SELECT COUNT(*) as count
          FROM deals d
          JOIN pipeline_stages ps ON ps.id = d.pipeline_stage_id
-         WHERE d.organization_id = $1${dealsPipelineFilter}
+         WHERE d.organization_id = $1${dealsPipelineFilter}${ofD}
            AND d.status = 'open'
            AND ps.max_days IS NOT NULL
            AND EXTRACT(EPOCH FROM (NOW() - d.stage_entered_at)) / 86400 > ps.max_days`,
@@ -1590,7 +1636,7 @@ router.get('/stats', async (req, res, next) => {
            0
          ) as avg_days_to_close
          FROM deals
-         WHERE organization_id = $1${pipelineFilter} AND status = 'won' AND won_date IS NOT NULL`,
+         WHERE organization_id = $1${pipelineFilter} AND status = 'won' AND won_date IS NOT NULL${ofDeals}`,
         baseParams
       ),
     ]);
