@@ -14,9 +14,16 @@ export default function Dashboard() {
   const { data: projectsData } = useProjects({ status: 'active' })
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
-  if (error) return <PageContainer><ErrorState message="Erro ao carregar dashboard" /></PageContainer>
+  if (error || !summary) return <PageContainer><ErrorState message="Erro ao carregar dashboard" /></PageContainer>
 
-  const s = summary!
+  const empty = { total: 0, tasks: [] as never[] }
+  const s = {
+    today: summary.today ?? empty,
+    overdue: summary.overdue ?? empty,
+    upcoming_7_days: summary.upcoming_7_days ?? empty,
+    risky_projects: summary.risky_projects ?? { total: 0, projects: [] as never[] },
+  }
+  const activeProjects = projectsData?.projects ?? []
 
   return (
     <PageContainer>
@@ -55,7 +62,7 @@ export default function Dashboard() {
             <FolderKanban className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{projectsData?.projects.length || 0}</div>
+            <div className="text-2xl font-bold">{activeProjects.length || 0}</div>
           </CardContent>
         </Card>
       </div>
@@ -98,11 +105,11 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {!projectsData?.projects.length ? (
+            {!activeProjects.length ? (
               <p className="text-sm text-muted-foreground">Nenhum projeto ativo</p>
             ) : (
               <div className="space-y-3">
-                {projectsData.projects.slice(0, 5).map((p) => (
+                {activeProjects.slice(0, 5).map((p) => (
                   <Link key={p.id} to={`/projects/${p.id}`} className="block">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">

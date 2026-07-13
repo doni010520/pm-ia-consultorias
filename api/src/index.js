@@ -16,6 +16,7 @@ import allocationsRouter from './routes/allocations.js';
 import capacityCalendarRouter from './routes/capacity-calendar.js';
 import crmRouter from './routes/crm.js';
 import ricaChatRouter from './routes/rica-chat.js';
+import integrationsRouter from './routes/integrations.js';
 
 // Middleware
 import { requireAuth } from './middleware/auth.js';
@@ -50,6 +51,9 @@ app.get('/health', (req, res) => {
 // Rotas públicas
 app.use('/api/auth', authRouter);
 app.use('/api/invites', invitesRouter);
+
+// Integrações (auth aplicada por-rota; callback OAuth é público)
+app.use('/api/integrations', integrationsRouter);
 
 // Rotas protegidas (JWT ou organization_id para n8n)
 app.use('/api/tasks', requireAuth, tasksRouter);

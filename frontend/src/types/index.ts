@@ -648,6 +648,26 @@ export interface RicaStats {
   }>
 }
 
+export interface AgendaActivity {
+  id: string
+  deal_id: string
+  type: string
+  description: string | null
+  scheduled_at: string
+  duration_minutes: number | null
+  outcome: string | null
+  google_event_id: string | null
+  user_id: string | null
+  user_name: string | null
+  deal_title: string | null
+  contact_name: string | null
+  contact_phone: string | null
+  company_name: string | null
+  owner_id: string | null
+  owner_name: string | null
+  deal_status: string | null
+}
+
 export interface DealFile {
   id: string
   deal_id: string

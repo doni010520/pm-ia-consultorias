@@ -192,7 +192,7 @@ export default function ProposalTemplates() {
                       <p className="text-sm font-semibold text-slate-800">{t.name}</p>
                       {!t.is_active && <Badge variant="outline" className="text-xs text-slate-400">Inativo</Badge>}
                       <Badge variant="outline" className="text-xs">
-                        {t.variables.length} variável{t.variables.length !== 1 ? 'is' : ''}
+                        {(t.variables ?? []).length} variável{(t.variables ?? []).length !== 1 ? 'is' : ''}
                       </Badge>
                     </div>
                     {t.description && <p className="text-xs text-slate-500 mt-0.5">{t.description}</p>}
@@ -223,11 +223,11 @@ export default function ProposalTemplates() {
 
                 {expandedId === t.id && (
                   <div className="border-t border-slate-100 px-4 py-3">
-                    {t.variables.length > 0 && (
+                    {(t.variables ?? []).length > 0 && (
                       <div className="mb-3">
                         <p className="text-xs font-medium text-slate-500 mb-1.5">Variáveis</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {t.variables.map(v => (
+                          {(t.variables ?? []).map(v => (
                             <code key={v.key} className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
                               {`{{${v.key}}}`} <span className="text-violet-400">— {v.label}</span>
                             </code>
@@ -237,7 +237,7 @@ export default function ProposalTemplates() {
                     )}
                     <p className="text-xs font-medium text-slate-500 mb-1.5">Prévia do corpo (Markdown)</p>
                     <pre className="text-[10px] font-mono bg-slate-50 rounded p-3 overflow-x-auto text-slate-700 max-h-48 whitespace-pre-wrap">
-                      {t.body_markdown.slice(0, 800)}{t.body_markdown.length > 800 ? '\n…' : ''}
+                      {(t.body_markdown ?? '').slice(0, 800)}{(t.body_markdown ?? '').length > 800 ? '\n…' : ''}
                     </pre>
                   </div>
                 )}

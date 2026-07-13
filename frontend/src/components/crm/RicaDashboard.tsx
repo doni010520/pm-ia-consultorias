@@ -62,7 +62,15 @@ export function RicaDashboard({ onDealClick }: RicaDashboardProps) {
 
   if (!ricaStats) return null
 
-  const stats = ricaStats as RicaStats
+  const raw = ricaStats as Partial<RicaStats>
+  const stats: RicaStats = {
+    qualified_leads: raw.qualified_leads ?? { today: 0, week: 0, month: 0, total: 0 },
+    by_executive: raw.by_executive ?? [],
+    by_product: raw.by_product ?? [],
+    pending_followups: raw.pending_followups ?? { count: 0, deals: [] },
+    action_rate: raw.action_rate ?? { total_assigned: 0, exec_acted: 0, rate: 0 },
+    recent_leads: raw.recent_leads ?? [],
+  }
 
   return (
     <div className="space-y-4">

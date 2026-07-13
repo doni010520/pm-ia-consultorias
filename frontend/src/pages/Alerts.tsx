@@ -45,9 +45,14 @@ export default function Alerts() {
   const { data, isLoading, error } = useAlertSummary()
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
-  if (error) return <PageContainer><ErrorState message="Erro ao carregar alertas" /></PageContainer>
+  if (error || !data) return <PageContainer><ErrorState message="Erro ao carregar alertas" /></PageContainer>
 
-  const s = data!
+  const empty = { total: 0, tasks: [] as Task[] }
+  const s = {
+    today: data.today ?? empty,
+    overdue: data.overdue ?? empty,
+    upcoming_7_days: data.upcoming_7_days ?? empty,
+  }
 
   return (
     <PageContainer>

@@ -3,6 +3,7 @@ import multer from 'multer';
 import { query } from '../services/database.js';
 import * as leadJourney from '../services/leadJourney.js';
 import * as dealAudit from '../services/dealAudit.js';
+import * as gcal from '../services/googleCalendar.js';
 
 const router = Router();
 
@@ -1293,6 +1294,34 @@ router.post('/deals/:id/activities', async (req, res, next) => {
 
     await query('UPDATE deals SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1', [id]);
 
+    const activity = result.rows[0];
+
+    // Google Agenda: se a atividade tem data/hora, cria o evento na agenda do
+    // responsável (usuário informado, o logado, ou o dono do deal). Nunca quebra.
+    if (activity.scheduled_at) {
+      try {
+        const dealRes = await query(
+          `SELECT owner_id, title, contact_name, contact_phone, company_name FROM deals WHERE id = $1`,
+          [id]
+        );
+        const deal = dealRes.rows[0] || {};
+        const calUserId = user_id || req.user?.id || deal.owner_id;
+        if (calUserId) {
+          const created = await gcal.createEventForActivity({ userId: calUserId, activity, deal });
+          if (created?.eventId) {
+            await query(
+              `UPDATE deal_activities SET google_event_id = $1, google_calendar_id = $2 WHERE id = $3`,
+              [created.eventId, created.calendarId, activity.id]
+            );
+            activity.google_event_id = created.eventId;
+            activity.google_calendar_id = created.calendarId;
+          }
+        }
+      } catch (e) {
+        console.warn('[crm] sync Google Agenda falhou:', e.message);
+      }
+    }
+
     // Journey event (fire and forget)
     leadJourney.recordActivityLogged({
       dealId: id, organizationId: orgId,
@@ -1307,7 +1336,47 @@ router.post('/deals/:id/activities', async (req, res, next) => {
       'activity_added', null, null, { type, direction, outcome }, {}
     ).catch(() => {});
 
-    res.status(201).json({ activity: result.rows[0] });
+    res.status(201).json({ activity });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── GET /api/crm/agenda ───────────────────────────────────────────────────────
+// Atividades AGENDADAS (com scheduled_at) num intervalo — alimenta a visão de
+// calendário do CRM. Executivo (member) vê só as dos próprios leads.
+router.get('/agenda', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+    const { start, end, user_id } = req.query;
+
+    const params = [orgId];
+    let idx = 2;
+    let sql = `
+      SELECT da.id, da.deal_id, da.type, da.description, da.scheduled_at,
+             da.duration_minutes, da.outcome, da.google_event_id,
+             da.user_id, u.name as user_name,
+             d.title as deal_title, d.contact_name, d.contact_phone,
+             d.company_name, d.owner_id, d.status as deal_status,
+             ow.name as owner_name
+      FROM deal_activities da
+      JOIN deals d ON d.id = da.deal_id
+      LEFT JOIN users u ON u.id = da.user_id
+      LEFT JOIN users ow ON ow.id = d.owner_id
+      WHERE d.organization_id = $1
+        AND da.scheduled_at IS NOT NULL`;
+
+    if (start) { sql += ` AND da.scheduled_at >= $${idx++}`; params.push(start); }
+    if (end) { sql += ` AND da.scheduled_at <= $${idx++}`; params.push(end); }
+    if (user_id) { sql += ` AND (da.user_id = $${idx} OR d.owner_id = $${idx})`; params.push(user_id); idx++; }
+
+    // Escopo por dono: member só vê a própria agenda.
+    if (isOwnerScoped(req)) { sql += ` AND d.owner_id = $${idx++}`; params.push(req.user.id); }
+
+    sql += ` ORDER BY da.scheduled_at ASC`;
+
+    const result = await query(sql, params);
+    res.json({ activities: result.rows, count: result.rows.length });
   } catch (error) {
     next(error);
   }

@@ -586,6 +586,27 @@ export const crmApi = {
     overview: () =>
       request<import('@/types').ManagerOverview>(`/api/crm/manager/overview${withOrg()}`),
   },
+
+  // Agenda (atividades agendadas) — visão de calendário
+  agenda: (params: { start?: string; end?: string; user_id?: string } = {}) =>
+    request<{ activities: import('@/types').AgendaActivity[]; count: number }>(
+      `/api/crm/agenda${withOrg(params)}`
+    ),
+}
+
+// Integrações (Google Agenda)
+export const integrationsApi = {
+  google: {
+    status: () =>
+      request<{
+        configured: boolean; connected: boolean; email: string | null
+        calendar_id: string; sync_enabled: boolean; connected_at: string | null
+      }>(`/api/integrations/google/status`),
+    connect: () =>
+      request<{ url: string }>(`/api/integrations/google/connect`),
+    disconnect: () =>
+      request<{ disconnected: boolean }>(`/api/integrations/google`, { method: 'DELETE' }),
+  },
 }
 
 // Transcriptions / Atas

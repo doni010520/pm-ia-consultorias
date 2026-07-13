@@ -42,9 +42,12 @@ export default function Capacity() {
   })
 
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
-  if (error) return <PageContainer><ErrorState message="Erro ao carregar capacidade" /></PageContainer>
+  if (error || !data) return <PageContainer><ErrorState message="Erro ao carregar capacidade" /></PageContainer>
 
-  const { consultants, summary } = data!
+  const consultants = data.consultants ?? []
+  const summary = data.summary ?? {
+    total_consultants: 0, total_allocated: 0, total_capacity: 0, avg_utilization: 0, overallocated_count: 0,
+  }
 
   return (
     <PageContainer>
@@ -156,9 +159,9 @@ export default function Capacity() {
                 <UtilizationBar percent={c.utilization_percent} />
 
                 {/* Projects breakdown */}
-                {c.projects.length > 0 && (
+                {(c.projects ?? []).length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {c.projects.map((p, idx) => (
+                    {(c.projects ?? []).map((p, idx) => (
                       <Badge key={idx} variant="secondary" className="text-xs">
                         {p.project_name}: {p.hours_per_week}h/sem
                       </Badge>
@@ -273,7 +276,7 @@ function AllocateModal({ open, onOpenChange, onSuccess }: { open: boolean; onOpe
               required
             >
               <option value="">Selecione...</option>
-              {usersData?.users.map((u) => (
+              {(usersData?.users ?? []).map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
@@ -288,7 +291,7 @@ function AllocateModal({ open, onOpenChange, onSuccess }: { open: boolean; onOpe
               required
             >
               <option value="">Selecione...</option>
-              {projectsData?.projects.map((p) => (
+              {(projectsData?.projects ?? []).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>

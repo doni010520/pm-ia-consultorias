@@ -53,7 +53,7 @@ export default function Reports() {
                 <label className="text-sm font-medium">Projeto *</label>
                 <select name="project_id" required className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm mt-1">
                   <option value="">Selecione...</option>
-                  {projectsData?.projects.map((p) => (
+                  {(projectsData?.projects ?? []).map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
@@ -84,7 +84,7 @@ export default function Reports() {
                 {formatDate(viewReport.period_start)} - {formatDate(viewReport.period_end)}
               </DialogDescription>
             </DialogHeader>
-            <MarkdownRenderer content={viewReport.content_markdown} />
+            <MarkdownRenderer content={viewReport.content_markdown ?? ''} />
           </DialogContent>
         </Dialog>
       )}
@@ -93,11 +93,11 @@ export default function Reports() {
         <LoadingSpinner />
       ) : error ? (
         <ErrorState message="Erro ao carregar relatorios" />
-      ) : !data?.reports.length ? (
+      ) : !data?.reports?.length ? (
         <EmptyState message="Nenhum relatorio gerado" />
       ) : (
         <div className="space-y-3">
-          {data.reports.map((r) => (
+          {(data.reports ?? []).map((r) => (
             <Card key={r.id} className="cursor-pointer hover:shadow-sm" onClick={() => setViewReport(r)}>
               <CardContent className="py-4 flex items-center gap-4">
                 <FileText className="h-5 w-5 text-muted-foreground shrink-0" />

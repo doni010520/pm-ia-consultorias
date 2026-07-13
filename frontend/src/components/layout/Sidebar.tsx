@@ -14,6 +14,8 @@ import {
   FileSignature,
   Bot,
   Home,
+  CalendarDays,
+  Building2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -26,6 +28,8 @@ const navGroups = [
     items: [
       { to: '/', icon: Home, label: 'Visão Geral' },
       { to: '/crm', icon: Target, label: 'CRM' },
+      { to: '/crm/empresas', icon: Building2, label: 'Empresas' },
+      { to: '/crm/agenda', icon: CalendarDays, label: 'Agenda' },
       { to: '/rica', icon: Bot, label: 'Rica AI' },
       { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
       { to: '/crm/templates', icon: FileSignature, label: 'Templates de Proposta' },

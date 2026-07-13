@@ -25,7 +25,10 @@ export default function AtaDetail() {
   if (isLoading) return <PageContainer><LoadingSpinner /></PageContainer>
   if (error || !data) return <PageContainer><ErrorState message="Erro ao carregar ata" /></PageContainer>
 
-  const { ata, acoes, decisoes, riscos } = data
+  const { ata } = data
+  const acoes = data.acoes ?? []
+  const decisoes = data.decisoes ?? []
+  const riscos = data.riscos ?? []
 
   function handleEditAcao(acao: AtaAcao) {
     setEditAcao(acao)
@@ -78,7 +81,7 @@ export default function AtaDetail() {
         <TabsContent value="content">
           <Card>
             <CardContent className="pt-6">
-              <MarkdownRenderer content={ata.conteudo_markdown} />
+              <MarkdownRenderer content={ata.conteudo_markdown ?? ''} />
             </CardContent>
           </Card>
         </TabsContent>

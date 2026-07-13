@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { NewDealDialog } from '@/components/crm/NewDealDialog'
 import { crmApi, usersApi } from '@/services/api'
 import type {
   Deal, PipelineStage, Pipeline, CrmStats, Task, DealFile, DealProposal, ProposalTemplate,
@@ -479,7 +480,7 @@ export default function CRM() {
                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Deals Abertos</p>
                 <TrendingUp className="h-4 w-4 text-slate-400" />
               </div>
-              <p className="text-2xl font-semibold text-slate-900 mt-1">{stats?.stats.open_deals ?? openDeals.length}</p>
+              <p className="text-2xl font-semibold text-slate-900 mt-1">{stats?.stats?.open_deals ?? openDeals.length}</p>
             </CardContent>
           </Card>
           <Card className="shadow-sm">
@@ -737,7 +738,7 @@ export default function CRM() {
       )}
 
       {showNewDeal && (
-        <NewDealModal
+        <NewDealDialog
           stages={activeStages}
           pipelineId={selectedPipelineId}
           onClose={() => setShowNewDeal(false)}
@@ -1705,6 +1706,7 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
   const [newInsight, setNewInsight] = useState({ category: 'note', content: '' })
   const [newActivity, setNewActivity] = useState({
     type: 'note', description: '', outcome: '', direction: 'outbound', transcription: '', showTranscription: false,
+    scheduled_at: '', duration_minutes: '30',
   })
   const [expandedTranscriptions, setExpandedTranscriptions] = useState<Set<string>>(new Set())
 
@@ -1841,7 +1843,8 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
     mutationFn: (d: Record<string, unknown>) => crmApi.deals.addActivity(dealId, d as Parameters<typeof crmApi.deals.addActivity>[1]),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm-deal', dealId] })
-      setNewActivity({ type: 'note', description: '', outcome: '', direction: 'outbound', transcription: '', showTranscription: false })
+      queryClient.invalidateQueries({ queryKey: ['crm-agenda'] })
+      setNewActivity({ type: 'note', description: '', outcome: '', direction: 'outbound', transcription: '', showTranscription: false, scheduled_at: '', duration_minutes: '30' })
     },
   })
 
@@ -1891,6 +1894,9 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
       direction: newActivity.direction || undefined,
       outcome: newActivity.outcome || undefined,
       transcription: newActivity.transcription.trim() || undefined,
+      // datetime-local -> ISO; vira evento no Google Agenda do responsável
+      scheduled_at: newActivity.scheduled_at ? new Date(newActivity.scheduled_at).toISOString() : undefined,
+      duration_minutes: newActivity.scheduled_at ? Number(newActivity.duration_minutes) || 30 : undefined,
     })
   }
 
@@ -2269,6 +2275,41 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                     className="text-xs min-h-[80px] bg-white"
                   />
                 )}
+                {/* Agendamento — vira evento no Google Agenda do responsável */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    <span>Agendar:</span>
+                  </div>
+                  <Input
+                    type="datetime-local"
+                    value={newActivity.scheduled_at}
+                    onChange={e => setNewActivity(p => ({ ...p, scheduled_at: e.target.value }))}
+                    className="h-8 text-xs bg-white w-[210px]"
+                  />
+                  {newActivity.scheduled_at && (
+                    <>
+                      <Select value={newActivity.duration_minutes} onValueChange={v => setNewActivity(p => ({ ...p, duration_minutes: v }))}>
+                        <SelectTrigger className="w-[110px] h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="15">15 min</SelectItem>
+                          <SelectItem value="30">30 min</SelectItem>
+                          <SelectItem value="45">45 min</SelectItem>
+                          <SelectItem value="60">1 hora</SelectItem>
+                          <SelectItem value="90">1h30</SelectItem>
+                          <SelectItem value="120">2 horas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <button
+                        type="button"
+                        onClick={() => setNewActivity(p => ({ ...p, scheduled_at: '' }))}
+                        className="text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        limpar
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Lista de atividades */}
@@ -2501,7 +2542,7 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                           entry.actor_type === 'automation' ? 'bg-amber-100 text-amber-700' :
                           'bg-slate-100 text-slate-600'
                         }`}>
-                          {(entry.actor_name ?? entry.actor_type ?? 'S')[0].toUpperCase()}
+                          {((entry.actor_name || entry.actor_type || 'S')[0] ?? 'S').toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-slate-700">
@@ -2737,7 +2778,7 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
                     const tmpl = proposalTemplatesData?.templates?.find((t: ProposalTemplate) => t.id === id)
                     if (tmpl) {
                       const defaults: Record<string, string> = {}
-                      tmpl.variables.forEach((v: { key: string; default?: string }) => { if (v.default) defaults[v.key] = v.default })
+                      ;(tmpl.variables ?? []).forEach((v: { key: string; default?: string }) => { if (v.default) defaults[v.key] = v.default })
                       setProposalVars(defaults)
                     }
                   }}>
@@ -2794,129 +2835,6 @@ function DealDetailModal({ dealId, stages, onClose, onMoveDeal }: {
   )
 }
 
-// ============================================
-// NEW DEAL MODAL
-// ============================================
-
-function NewDealModal({ stages, pipelineId, onClose }: { stages: PipelineStage[]; pipelineId: string | null; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const [form, setForm] = useState({
-    title: '', contact_name: '', contact_phone: '', contact_email: '',
-    company_name: '', value: '', source: 'inbound', temperature: 'warm',
-    pipeline_stage_id: stages[0]?.id ?? '', notes: '',
-  })
-
-  const createMutation = useMutation({
-    mutationFn: (d: Record<string, unknown>) => crmApi.deals.create(d),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crm-deals'] })
-      queryClient.invalidateQueries({ queryKey: ['crm-stats'] })
-      queryClient.invalidateQueries({ queryKey: ['crm-pipelines'] })
-      onClose()
-    },
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.title.trim()) return
-    createMutation.mutate({
-      title: form.title.trim(),
-      contact_name: form.contact_name.trim() || null,
-      contact_phone: form.contact_phone.trim() || null,
-      contact_email: form.contact_email.trim() || null,
-      company_name: form.company_name.trim() || null,
-      value: form.value ? parseFloat(form.value) : null,
-      source: form.source,
-      temperature: form.temperature,
-      pipeline_stage_id: form.pipeline_stage_id,
-      pipeline_id: pipelineId,
-    })
-  }
-
-  const u = (field: string, value: string) => setForm(p => ({ ...p, [field]: value }))
-
-  return (
-    <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Novo Negócio</DialogTitle>
-          <DialogDescription>Preencha as informações do negócio</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Titulo *</label>
-              <Input value={form.title} onChange={e => u('title', e.target.value)} placeholder="Ex: Projeto app mobile" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Nome do contato</label>
-              <Input value={form.contact_name} onChange={e => u('contact_name', e.target.value)} placeholder="Nome" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Telefone</label>
-              <Input value={form.contact_phone} onChange={e => u('contact_phone', e.target.value)} placeholder="(11) 99999-9999" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Email</label>
-              <Input type="email" value={form.contact_email} onChange={e => u('contact_email', e.target.value)} placeholder="email@empresa.com" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Empresa</label>
-              <Input value={form.company_name} onChange={e => u('company_name', e.target.value)} placeholder="Empresa" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Valor (R$)</label>
-              <Input type="number" value={form.value} onChange={e => u('value', e.target.value)} placeholder="0,00" className="text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Etapa</label>
-              <Select value={form.pipeline_stage_id} onValueChange={v => u('pipeline_stage_id', v)}>
-                <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {stages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Origem</label>
-              <Select value={form.source} onValueChange={v => u('source', v)}>
-                <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="indicacao">Indicacao</SelectItem>
-                  <SelectItem value="inbound">Inbound</SelectItem>
-                  <SelectItem value="outbound">Outbound</SelectItem>
-                  <SelectItem value="evento">Evento</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Temperatura</label>
-              <Select value={form.temperature} onValueChange={v => u('temperature', v)}>
-                <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hot">Quente</SelectItem>
-                  <SelectItem value="warm">Morno</SelectItem>
-                  <SelectItem value="cold">Frio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Observacoes</label>
-              <Textarea value={form.notes} onChange={e => u('notes', e.target.value)} placeholder="Notas sobre o lead..." rows={2} className="text-sm" />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" disabled={!form.title.trim() || createMutation.isPending}>
-              {createMutation.isPending ? 'Criando...' : 'Criar Lead'}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 // ============================================
 // AUTOMATIONS MODAL

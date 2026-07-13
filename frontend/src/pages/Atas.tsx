@@ -24,7 +24,7 @@ export default function Atas() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os projetos</SelectItem>
-            {projectsData?.projects.map((p) => (
+            {(projectsData?.projects ?? []).map((p) => (
               <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
             ))}
           </SelectContent>

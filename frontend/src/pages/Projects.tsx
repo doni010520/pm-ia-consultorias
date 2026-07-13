@@ -110,11 +110,11 @@ export default function Projects() {
         <LoadingSpinner />
       ) : error ? (
         <ErrorState message="Erro ao carregar projetos" />
-      ) : !data?.projects.length ? (
+      ) : !data?.projects?.length ? (
         <EmptyState message="Nenhum projeto encontrado" />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {data.projects.map((p) => (
+          {(data.projects ?? []).map((p) => (
             <Link key={p.id} to={`/projects/${p.id}`}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
                 <CardHeader className="pb-3">

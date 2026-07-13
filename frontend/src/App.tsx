@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -19,6 +20,10 @@ import Team from '@/pages/Team'
 import Capacity from '@/pages/Capacity'
 import CapacityCalendar from '@/pages/CapacityCalendar'
 import CRM from '@/pages/CRM'
+import CrmAgenda from '@/pages/CrmAgenda'
+import Empresas from '@/pages/Empresas'
+import EmpresaDetail from '@/pages/EmpresaDetail'
+import ContatoDetail from '@/pages/ContatoDetail'
 import LeadJourney from '@/pages/LeadJourney'
 import ProposalTemplates from '@/pages/ProposalTemplates'
 import Rica from '@/pages/Rica'
@@ -37,6 +42,7 @@ const queryClient = new QueryClient({
 
 function ProtectedLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore()
+  const location = useLocation()
 
   useEffect(() => {
     checkAuth()
@@ -59,26 +65,34 @@ function ProtectedLayout() {
       <Sidebar />
       <div className="md:pl-64 flex flex-col min-h-screen">
         <Header />
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/projects/:id" element={<ProjectDetail />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/atas" element={<Atas />} />
-          <Route path="/atas/:id" element={<AtaDetail />} />
-          <Route path="/alerts" element={<Alerts />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/team" element={<Team />} />
-          <Route path="/capacity" element={<CapacityCalendar />} />
-          <Route path="/capacity/simple" element={<Capacity />} />
-          <Route path="/rica" element={<Rica />} />
-          <Route path="/crm" element={<CRM />} />
-          <Route path="/crm/journey" element={<LeadJourney />} />
-          <Route path="/crm/templates" element={<ProposalTemplates />} />
-        </Routes>
+        <ErrorBoundary key={location.pathname} label={location.pathname}>
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/:id" element={<ProjectDetail />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/atas" element={<Atas />} />
+            <Route path="/atas/:id" element={<AtaDetail />} />
+            <Route path="/alerts" element={<Alerts />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/team" element={<Team />} />
+            <Route path="/capacity" element={<CapacityCalendar />} />
+            <Route path="/capacity/simple" element={<Capacity />} />
+            <Route path="/rica" element={<Rica />} />
+            <Route path="/crm" element={<CRM />} />
+            <Route path="/crm/agenda" element={<CrmAgenda />} />
+            <Route path="/crm/empresas" element={<Empresas />} />
+            <Route path="/crm/empresas/:id" element={<EmpresaDetail />} />
+            <Route path="/crm/contatos/:id" element={<ContatoDetail />} />
+            <Route path="/crm/journey" element={<LeadJourney />} />
+            <Route path="/crm/templates" element={<ProposalTemplates />} />
+          </Routes>
+        </ErrorBoundary>
       </div>
-      <RicaChat />
+      <ErrorBoundary label="Chat Rica" fallback={null}>
+        <RicaChat />
+      </ErrorBoundary>
     </div>
   )
 }
