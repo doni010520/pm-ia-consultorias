@@ -923,23 +923,30 @@ router.post('/deals', async (req, res, next) => {
     const {
       title, contact_name, contact_email, contact_phone, company_name,
       owner_id, value, source = 'whatsapp', temperature = 'warm',
-      tags, custom_fields, pipeline_id, company_id, contact_id,
+      tags, custom_fields, pipeline_id, pipeline_stage_id, company_id, contact_id,
       // rastreabilidade
       first_channel, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
       rica_session_id,
     } = req.body;
 
-    // Get first pipeline stage for the given pipeline (or any)
-    let stageQuery = `SELECT id FROM pipeline_stages
-       WHERE organization_id = $1 AND is_won = false AND is_lost = false`;
-    const stageParams = [orgId];
-    if (pipeline_id) {
-      stageQuery += ' AND pipeline_id = $2';
-      stageParams.push(pipeline_id);
+    // Etapa: honra a etapa escolhida; senao pega a 1a etapa do funil.
+    let stageId = pipeline_stage_id || null;
+    if (!stageId) {
+      let stageQuery = `SELECT id FROM pipeline_stages
+         WHERE organization_id = $1 AND is_won = false AND is_lost = false`;
+      const stageParams = [orgId];
+      if (pipeline_id) {
+        stageQuery += ' AND pipeline_id = $2';
+        stageParams.push(pipeline_id);
+      }
+      stageQuery += ' ORDER BY position LIMIT 1';
+      const stageResult = await query(stageQuery, stageParams);
+      stageId = stageResult.rows[0]?.id || null;
     }
-    stageQuery += ' ORDER BY position LIMIT 1';
-    const stageResult = await query(stageQuery, stageParams);
-    const stageId = stageResult.rows[0]?.id || null;
+
+    // Dono: se nao informado, atribui a quem criou (evita lead "orfao" invisivel
+    // para executivos que so veem os proprios leads). Bot/n8n (sem req.user) fica null.
+    const ownerId = owner_id || req.user?.id || null;
 
     const result = await query(
       `INSERT INTO deals (organization_id, pipeline_stage_id, pipeline_id, title, contact_name, contact_email,
@@ -951,7 +958,7 @@ router.post('/deals', async (req, res, next) => {
         orgId, stageId, pipeline_id || null,
         title || `Lead - ${contact_name || contact_phone}`,
         contact_name, contact_email, contact_phone, company_name,
-        owner_id, value, source, temperature, tags || [], custom_fields || {},
+        ownerId, value, source, temperature, tags || [], custom_fields || {},
         company_id || null, contact_id || null,
       ]
     );

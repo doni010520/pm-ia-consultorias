@@ -126,7 +126,7 @@ export default function CRM() {
   const [tempFilter, setTempFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
-  const [sortBy, setSortBy] = useState('recent')
+  const [sortBy, setSortBy] = useState('newest')
 
   // Modal state
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
@@ -249,12 +249,19 @@ export default function CRM() {
     if (sourceFilter !== 'all') {
       deals = deals.filter(d => d.source === sourceFilter)
     }
+    const nm = (d: typeof deals[number]) => (d.contact_name || d.title || '').toLowerCase()
+    const ts = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
     if (sortBy === 'value') {
       deals.sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-    } else if (sortBy === 'stage_age') {
-      deals.sort((a, b) => (b.days_in_stage ?? 0) - (a.days_in_stage ?? 0))
+    } else if (sortBy === 'oldest') {
+      deals.sort((a, b) => ts(a.created_at) - ts(b.created_at))
+    } else if (sortBy === 'az') {
+      deals.sort((a, b) => nm(a).localeCompare(nm(b), 'pt-BR'))
+    } else if (sortBy === 'za') {
+      deals.sort((a, b) => nm(b).localeCompare(nm(a), 'pt-BR'))
     } else {
-      deals.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      // 'newest' (padrão): mais novos primeiro
+      deals.sort((a, b) => ts(b.created_at) - ts(a.created_at))
     }
     return deals
   }, [allDeals, search, tempFilter, ownerFilter, sourceFilter, sortBy])
@@ -316,7 +323,7 @@ export default function CRM() {
   const conversionRate = totalClosed > 0 ? Math.round((wonDeals.length / totalClosed) * 100) : 0
 
   return (
-    <PageContainer>
+    <div className="h-full flex flex-col min-h-0 p-4 md:p-6 gap-4">
       {lostPrompt && createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" onClick={() => setLostPrompt(null)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
@@ -634,7 +641,7 @@ export default function CRM() {
               <div>
                 <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Ordenar por</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {[{ v: 'recent', l: 'Mais recente' }, { v: 'value', l: 'Maior valor' }, { v: 'stage_age', l: 'Mais antigo' }].map(opt => (
+                  {[{ v: 'newest', l: 'Mais novos' }, { v: 'oldest', l: 'Mais antigos' }, { v: 'az', l: 'A–Z' }, { v: 'za', l: 'Z–A' }, { v: 'value', l: 'Maior valor' }].map(opt => (
                     <button
                       key={opt.v}
                       onClick={() => setSortBy(opt.v)}
@@ -687,24 +694,26 @@ export default function CRM() {
       {/* KANBAN VIEW */}
       {/* ============================================ */}
       {view === 'kanban' && (
-        <KanbanBoard
-          stages={activeStages}
-          wonStage={wonStage}
-          lostStage={lostStage}
-          deals={openDeals}
-          wonDeals={wonDeals}
-          lostDeals={lostDeals}
-          wonExpanded={wonExpanded}
-          lostExpanded={lostExpanded}
-          onToggleWon={() => setWonExpanded(!wonExpanded)}
-          onToggleLost={() => setLostExpanded(!lostExpanded)}
-          onDealClick={setSelectedDealId}
-          onMoveDeal={(dealId, stageId) => attemptMove(dealId, stageId)}
-          pipelineId={selectedPipelineId}
-          pipelines={pipelines}
-          users={allUsers}
-          onQuickUpdate={(dealId, data) => quickUpdateMutation.mutate({ dealId, data })}
-        />
+        <div className="flex-1 min-h-0">
+          <KanbanBoard
+            stages={activeStages}
+            wonStage={wonStage}
+            lostStage={lostStage}
+            deals={openDeals}
+            wonDeals={wonDeals}
+            lostDeals={lostDeals}
+            wonExpanded={wonExpanded}
+            lostExpanded={lostExpanded}
+            onToggleWon={() => setWonExpanded(!wonExpanded)}
+            onToggleLost={() => setLostExpanded(!lostExpanded)}
+            onDealClick={setSelectedDealId}
+            onMoveDeal={(dealId, stageId) => attemptMove(dealId, stageId)}
+            pipelineId={selectedPipelineId}
+            pipelines={pipelines}
+            users={allUsers}
+            onQuickUpdate={(dealId, data) => quickUpdateMutation.mutate({ dealId, data })}
+          />
+        </div>
       )}
 
       {/* ============================================ */}
@@ -756,7 +765,7 @@ export default function CRM() {
       {showNewContact && (
         <NewContactModal onClose={() => setShowNewContact(false)} />
       )}
-    </PageContainer>
+    </div>
   )
 }
 
@@ -1241,7 +1250,7 @@ function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 md:-mx-6 md:px-6">
+    <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:-mx-6 md:px-6 h-full items-stretch">
       {stages.map(stage => {
         const stageDeals = deals.filter(d => d.pipeline_stage_id === stage.id)
         const stageValue = stageDeals.reduce((s, d) => s + (d.value ?? 0), 0)
@@ -1306,7 +1315,7 @@ function KanbanBoard({
                 </>
               )}
             </div>
-            <div className="flex-1 p-2 space-y-2 min-h-[100px] overflow-y-auto max-h-[calc(100vh-380px)]">
+            <div className="flex-1 min-h-0 p-2 space-y-2 overflow-y-auto">
               {stageDeals.map(deal => (
                 <DealCard
                   key={deal.id}
