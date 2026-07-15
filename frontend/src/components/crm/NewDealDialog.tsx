@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Building2, User, Check, Plus, Search, X } from 'lucide-react'
+import { Building2, User, Check, Plus, Search, X, GitBranch } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -21,17 +21,39 @@ export function NewDealDialog({
   presetContact?: Selected & { phone?: string | null; email?: string | null }
 }) {
   const queryClient = useQueryClient()
-  const activeStages = stages.filter(s => !s.is_won && !s.is_lost).sort((a, b) => a.position - b.position)
 
   const [company, setCompany] = useState<Selected | null>(presetCompany ?? null)
   const [contact, setContact] = useState<(Selected & { phone?: string | null; email?: string | null }) | null>(presetContact ?? null)
 
-  // Fields do negócio
+  // ── Funil (pipeline) selecionável ─────────────────────────────────────────
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(pipelineId)
+  const { data: pipelinesData } = useQuery({
+    queryKey: ['crm-pipelines'],
+    queryFn: () => crmApi.pipelines.list(),
+  })
+  const pipelines = pipelinesData?.pipelines ?? []
+  // Se nenhum funil veio por prop, usa o primeiro assim que a lista carrega.
+  useEffect(() => {
+    if (!selectedPipelineId && pipelines.length) setSelectedPipelineId(pipelines[0].id)
+  }, [pipelines.length, selectedPipelineId])
+
+  // Etapas do funil selecionado (usa as `stages` da prop como cache inicial se bater).
+  const { data: stagesData } = useQuery({
+    queryKey: ['crm-stages', selectedPipelineId],
+    queryFn: () => crmApi.pipeline(selectedPipelineId ?? undefined),
+    enabled: !!selectedPipelineId,
+    initialData: selectedPipelineId && selectedPipelineId === pipelineId ? { stages } : undefined,
+  })
+  const activeStages = (stagesData?.stages ?? stages)
+    .filter(s => !s.is_won && !s.is_lost)
+    .sort((a, b) => a.position - b.position)
+
+  // Fields do negócio (pipeline_stage_id vazio = usa a 1ª etapa do funil atual)
   const [form, setForm] = useState({
-    title: '', value: '', temperature: 'warm', source: 'inbound',
-    pipeline_stage_id: activeStages[0]?.id ?? '',
+    title: '', value: '', temperature: 'warm', source: 'inbound', pipeline_stage_id: '',
   })
   const u = (f: string, v: string) => setForm(p => ({ ...p, [f]: v }))
+  const effectiveStageId = form.pipeline_stage_id || activeStages[0]?.id || ''
 
   // ── Empresa: busca + criar ──────────────────────────────────────────────
   const [companySearch, setCompanySearch] = useState('')
@@ -90,7 +112,7 @@ export function NewDealDialog({
     },
   })
 
-  const canSubmit = !!company && !!contact && form.title.trim().length > 0 && !!form.pipeline_stage_id
+  const canSubmit = !!company && !!contact && form.title.trim().length > 0 && !!selectedPipelineId && !!effectiveStageId
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
@@ -105,8 +127,8 @@ export function NewDealDialog({
       value: form.value ? parseFloat(form.value) : null,
       temperature: form.temperature,
       source: form.source,
-      pipeline_stage_id: form.pipeline_stage_id,
-      pipeline_id: pipelineId,
+      pipeline_stage_id: effectiveStageId,
+      pipeline_id: selectedPipelineId,
     })
   }
 
@@ -209,9 +231,22 @@ export function NewDealDialog({
           <div className="space-y-2 border-t pt-3">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">3. Negócio</label>
             <Input placeholder="Título do negócio *" value={form.title} onChange={e => u('title', e.target.value)} className="text-sm" />
+            {/* Funil (obrigatório) — em qual funil o lead será criado */}
+            <Select
+              value={selectedPipelineId ?? ''}
+              onValueChange={v => { setSelectedPipelineId(v); setForm(p => ({ ...p, pipeline_stage_id: '' })) }}
+            >
+              <SelectTrigger className="text-sm">
+                <span className="flex items-center gap-1.5 text-slate-500"><GitBranch className="h-3.5 w-3.5" /></span>
+                <SelectValue placeholder="Escolha o funil" />
+              </SelectTrigger>
+              <SelectContent>
+                {pipelines.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <div className="grid grid-cols-2 gap-2">
               <Input type="number" placeholder="Valor (R$)" value={form.value} onChange={e => u('value', e.target.value)} className="text-sm" />
-              <Select value={form.pipeline_stage_id} onValueChange={v => u('pipeline_stage_id', v)}>
+              <Select value={effectiveStageId} onValueChange={v => u('pipeline_stage_id', v)}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Etapa" /></SelectTrigger>
                 <SelectContent>
                   {activeStages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}

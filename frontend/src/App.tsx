@@ -61,12 +61,13 @@ function ProtectedLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="h-screen overflow-hidden bg-muted/30">
       <Sidebar />
-      <div className="md:pl-64 flex flex-col min-h-screen">
+      <div className="md:pl-64 flex flex-col h-screen">
         <Header />
-        <ErrorBoundary key={location.pathname} label={location.pathname}>
-          <Routes>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <ErrorBoundary key={location.pathname} label={location.pathname}>
+            <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/projects" element={<Projects />} />
@@ -88,7 +89,8 @@ function ProtectedLayout() {
             <Route path="/crm/journey" element={<LeadJourney />} />
             <Route path="/crm/templates" element={<ProposalTemplates />} />
           </Routes>
-        </ErrorBoundary>
+          </ErrorBoundary>
+        </div>
       </div>
       <ErrorBoundary label="Chat Rica" fallback={null}>
         <RicaChat />
