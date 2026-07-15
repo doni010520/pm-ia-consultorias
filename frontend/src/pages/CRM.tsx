@@ -126,7 +126,6 @@ export default function CRM() {
   const [tempFilter, setTempFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
-  const [sortBy, setSortBy] = useState('newest')
 
   // Modal state
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
@@ -249,22 +248,10 @@ export default function CRM() {
     if (sourceFilter !== 'all') {
       deals = deals.filter(d => d.source === sourceFilter)
     }
-    const nm = (d: typeof deals[number]) => (d.contact_name || d.title || '').toLowerCase()
-    const ts = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
-    if (sortBy === 'value') {
-      deals.sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-    } else if (sortBy === 'oldest') {
-      deals.sort((a, b) => ts(a.created_at) - ts(b.created_at))
-    } else if (sortBy === 'az') {
-      deals.sort((a, b) => nm(a).localeCompare(nm(b), 'pt-BR'))
-    } else if (sortBy === 'za') {
-      deals.sort((a, b) => nm(b).localeCompare(nm(a), 'pt-BR'))
-    } else {
-      // 'newest' (padrão): mais novos primeiro
-      deals.sort((a, b) => ts(b.created_at) - ts(a.created_at))
-    }
+    // Ordem base estavel (mais novos). A ordenacao visivel do Kanban e por coluna.
+    deals.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     return deals
-  }, [allDeals, search, tempFilter, ownerFilter, sourceFilter, sortBy])
+  }, [allDeals, search, tempFilter, ownerFilter, sourceFilter])
 
   const hasFilters = search || tempFilter !== 'all' || ownerFilter !== 'all' || sourceFilter !== 'all'
 
@@ -636,22 +623,6 @@ export default function CRM() {
               </div>
 
               <div className="border-t border-slate-100" />
-
-              {/* Ordenar */}
-              <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Ordenar por</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {[{ v: 'newest', l: 'Mais novos' }, { v: 'oldest', l: 'Mais antigos' }, { v: 'az', l: 'A–Z' }, { v: 'za', l: 'Z–A' }, { v: 'value', l: 'Maior valor' }].map(opt => (
-                    <button
-                      key={opt.v}
-                      onClick={() => setSortBy(opt.v)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${sortBy === opt.v ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    >
-                      {opt.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {hasFilters && (
                 <>
@@ -1163,6 +1134,26 @@ function DashboardView({ stages, openDeals, wonDeals, lostDeals, stats, onDealCl
 // KANBAN BOARD
 // ============================================
 
+const SORT_OPTS = [
+  { v: 'newest', l: 'Mais novos' },
+  { v: 'oldest', l: 'Mais antigos' },
+  { v: 'az', l: 'A–Z' },
+  { v: 'za', l: 'Z–A' },
+  { v: 'value', l: 'Maior valor' },
+] as const
+
+function sortDeals(list: Deal[], key: string): Deal[] {
+  const nm = (d: Deal) => (d.contact_name || d.title || '').toLowerCase()
+  const ts = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
+  const arr = [...list]
+  if (key === 'oldest') arr.sort((a, b) => ts(a.created_at) - ts(b.created_at))
+  else if (key === 'az') arr.sort((a, b) => nm(a).localeCompare(nm(b), 'pt-BR'))
+  else if (key === 'za') arr.sort((a, b) => nm(b).localeCompare(nm(a), 'pt-BR'))
+  else if (key === 'value') arr.sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+  else arr.sort((a, b) => ts(b.created_at) - ts(a.created_at)) // newest
+  return arr
+}
+
 function KanbanBoard({
   stages, wonStage, lostStage, deals, wonDeals, lostDeals,
   wonExpanded, lostExpanded, onToggleWon, onToggleLost,
@@ -1193,6 +1184,9 @@ function KanbanBoard({
   const [editColor, setEditColor] = useState('')
   const [newStageName, setNewStageName] = useState('')
   const [showAddStage, setShowAddStage] = useState(false)
+  // Ordenacao por coluna (cada etapa tem a sua). Default: mais novos.
+  const [colSort, setColSort] = useState<Record<string, string>>({})
+  const [sortMenuFor, setSortMenuFor] = useState<string | null>(null)
 
   const updateStageMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => crmApi.pipeline.update(id, data),
@@ -1252,7 +1246,7 @@ function KanbanBoard({
   return (
     <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:-mx-6 md:px-6 h-full items-stretch">
       {stages.map(stage => {
-        const stageDeals = deals.filter(d => d.pipeline_stage_id === stage.id)
+        const stageDeals = sortDeals(deals.filter(d => d.pipeline_stage_id === stage.id), colSort[stage.id] || 'newest')
         const stageValue = stageDeals.reduce((s, d) => s + (d.value ?? 0), 0)
         const isOver = dragOverStage === stage.id
         const isEditing = editingStageId === stage.id
@@ -1307,7 +1301,36 @@ function KanbanBoard({
                     >
                       <Pencil className="h-3 w-3" />
                     </button>
-                    <span className="ml-auto text-xs text-slate-400 font-medium">{stageDeals.length}</span>
+                    <div className="ml-auto flex items-center gap-1">
+                      <span className="text-xs text-slate-400 font-medium">{stageDeals.length}</span>
+                      {/* Ordenar esta coluna */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setSortMenuFor(sortMenuFor === stage.id ? null : stage.id)}
+                          className={`flex-shrink-0 rounded p-0.5 transition-colors ${colSort[stage.id] && colSort[stage.id] !== 'newest' ? 'text-indigo-500' : 'text-slate-400 hover:text-slate-600'}`}
+                          title="Ordenar cards desta etapa"
+                        >
+                          <ArrowDownUp className="h-3 w-3" />
+                        </button>
+                        {sortMenuFor === stage.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setSortMenuFor(null)} />
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border shadow-lg py-1 min-w-[140px]">
+                              <p className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Ordenar por</p>
+                              {SORT_OPTS.map(opt => (
+                                <button
+                                  key={opt.v}
+                                  onClick={() => { setColSort(p => ({ ...p, [stage.id]: opt.v })); setSortMenuFor(null) }}
+                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${(colSort[stage.id] || 'newest') === opt.v ? 'text-indigo-600 font-medium' : 'text-slate-600'}`}
+                                >
+                                  {opt.l}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   {stageValue > 0 && (
                     <p className="text-xs text-slate-400 mt-0.5 pl-[18px]">{formatCurrency(stageValue)}</p>
