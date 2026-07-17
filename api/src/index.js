@@ -48,6 +48,20 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Log de erros do cliente (frontend ErrorBoundary) — público, para diagnosticar
+// crashes de render em produção via logs do servidor.
+app.post('/api/client-error', (req, res) => {
+  const { label, message, stack, componentStack, url, userAgent, userEmail, time } = req.body || {};
+  console.error('[CLIENT-ERROR]', JSON.stringify({
+    time: time || new Date().toISOString(),
+    label, message, url, userEmail,
+    componentStack: (componentStack || '').slice(0, 1500),
+    stack: (stack || '').slice(0, 1500),
+    userAgent: (userAgent || '').slice(0, 200),
+  }));
+  res.json({ ok: true });
+});
+
 // Rotas públicas
 app.use('/api/auth', authRouter);
 app.use('/api/invites', invitesRouter);
