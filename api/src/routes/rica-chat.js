@@ -239,7 +239,7 @@ router.post('/ask', async (req, res, next) => {
         executivo: z.string().optional().describe('Nome do executivo de destino (ex: André, Patrícia). Vazio = roteia por produto/região.'),
         nome: z.string().optional().describe('Nome do lead, se informado.'),
         produto: z.string().optional().describe('Produto/interesse do lead (ex: GPS, Eneagrama, padaria).'),
-        empresa: z.string().optional().describe('Empresa do lead, se informada.'),
+        empresa: z.string().optional().describe('Nome da EMPRESA/negócio do lead (ex: "Padaria Pão Quente"), se informado. NÃO coloque cidade, estado, região nem produto aqui — se só souber a cidade, deixe vazio.'),
       }),
       execute: async (args) => {
         pendingAction = { type: 'encaminhar_lead', ...args, solicitante: user.name };
