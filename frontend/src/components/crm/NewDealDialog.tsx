@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Building2, User, Check, Plus, Search, X, GitBranch } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -25,30 +25,38 @@ export function NewDealDialog({
   const [company, setCompany] = useState<Selected | null>(presetCompany ?? null)
   const [contact, setContact] = useState<(Selected & { phone?: string | null; email?: string | null }) | null>(presetContact ?? null)
 
-  // ── Funil (pipeline) selecionável ─────────────────────────────────────────
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(pipelineId)
+  // ── Funis (pipelines) — pode escolher VÁRIOS: cria 1 negócio independente por funil ──
+  const [selectedPipelineIds, setSelectedPipelineIds] = useState<string[]>(pipelineId ? [pipelineId] : [])
+  const inited = useRef(false)
   const { data: pipelinesData } = useQuery({
     queryKey: ['crm-pipelines'],
     queryFn: () => crmApi.pipelines.list(),
   })
   const pipelines = pipelinesData?.pipelines ?? []
-  // Se nenhum funil veio por prop, usa o primeiro assim que a lista carrega.
+  // Se nenhum funil veio por prop, seleciona o primeiro assim que a lista carrega (uma vez).
   useEffect(() => {
-    if (!selectedPipelineId && pipelines.length) setSelectedPipelineId(pipelines[0].id)
-  }, [pipelines.length, selectedPipelineId])
+    if (!inited.current && selectedPipelineIds.length === 0 && pipelines.length) {
+      setSelectedPipelineIds([pipelines[0].id]); inited.current = true
+    }
+  }, [pipelines.length, selectedPipelineIds.length])
 
-  // Etapas do funil selecionado (usa as `stages` da prop como cache inicial se bater).
+  const togglePipeline = (id: string) =>
+    setSelectedPipelineIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+
+  // A etapa só é escolhível quando há EXATAMENTE 1 funil; com vários, cada um usa a 1ª etapa.
+  const singlePipelineId = selectedPipelineIds.length === 1 ? selectedPipelineIds[0] : null
+
+  // Etapas do funil único (usa as `stages` da prop como cache inicial se bater).
   const { data: stagesData } = useQuery({
-    queryKey: ['crm-stages', selectedPipelineId],
-    queryFn: () => crmApi.pipeline(selectedPipelineId ?? undefined),
-    enabled: !!selectedPipelineId,
-    initialData: selectedPipelineId && selectedPipelineId === pipelineId ? { stages } : undefined,
+    queryKey: ['crm-stages', singlePipelineId],
+    queryFn: () => crmApi.pipeline(singlePipelineId ?? undefined),
+    enabled: !!singlePipelineId,
+    initialData: singlePipelineId && singlePipelineId === pipelineId ? { stages } : undefined,
   })
   const activeStages = (stagesData?.stages ?? stages)
     .filter(s => !s.is_won && !s.is_lost)
     .sort((a, b) => a.position - b.position)
 
-  // Fields do negócio (pipeline_stage_id vazio = usa a 1ª etapa do funil atual)
   const [form, setForm] = useState({
     title: '', value: '', temperature: 'warm', source: 'inbound', pipeline_stage_id: '',
   })
@@ -98,9 +106,9 @@ export function NewDealDialog({
     },
   })
 
-  // ── Criar negócio ───────────────────────────────────────────────────────
+  // ── Criar negócio(s) — um por funil selecionado, todos vinculados ao mesmo contato ──
   const createDealMutation = useMutation({
-    mutationFn: (d: Record<string, unknown>) => crmApi.deals.create(d),
+    mutationFn: (deals: Record<string, unknown>[]) => Promise.all(deals.map(d => crmApi.deals.create(d))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm-deals'] })
       queryClient.invalidateQueries({ queryKey: ['crm-stats'] })
@@ -112,11 +120,11 @@ export function NewDealDialog({
     },
   })
 
-  const canSubmit = !!company && !!contact && form.title.trim().length > 0 && !!selectedPipelineId && !!effectiveStageId
+  const canSubmit = !!company && !!contact && form.title.trim().length > 0 && selectedPipelineIds.length >= 1
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
-    createDealMutation.mutate({
+    const base = {
       title: form.title.trim(),
       company_id: company!.id,
       contact_id: contact!.id,
@@ -127,9 +135,15 @@ export function NewDealDialog({
       value: form.value ? parseFloat(form.value) : null,
       temperature: form.temperature,
       source: form.source,
-      pipeline_stage_id: effectiveStageId,
-      pipeline_id: selectedPipelineId,
-    })
+    }
+    // 1 negócio por funil. Com 1 funil, honra a etapa escolhida; com vários, cada um
+    // entra na 1ª etapa do seu funil (backend resolve quando pipeline_stage_id vem vazio).
+    const deals = selectedPipelineIds.map(pid => ({
+      ...base,
+      pipeline_id: pid,
+      pipeline_stage_id: singlePipelineId ? effectiveStageId : undefined,
+    }))
+    createDealMutation.mutate(deals)
   }
 
   return (
@@ -206,6 +220,19 @@ export function NewDealDialog({
                   <Input placeholder="Telefone" value={newContact.phone} onChange={e => setNewContact(p => ({ ...p, phone: e.target.value }))} className="h-8 text-sm bg-white" />
                   <Input placeholder="E-mail" value={newContact.email} onChange={e => setNewContact(p => ({ ...p, email: e.target.value }))} className="h-8 text-sm bg-white" />
                 </div>
+                {/* Função da pessoa no negócio (dono, sócio, gerente...) */}
+                <Input
+                  placeholder="Função no negócio (ex: dono, sócio, gerente)"
+                  value={newContact.role}
+                  onChange={e => setNewContact(p => ({ ...p, role: e.target.value }))}
+                  list="contact-role-suggestions"
+                  className="h-8 text-sm bg-white"
+                />
+                <datalist id="contact-role-suggestions">
+                  <option value="Dono" /><option value="Sócio" /><option value="Gerente" />
+                  <option value="Líder" /><option value="Diretor(a)" /><option value="Comprador(a)" />
+                  <option value="Decisor(a)" /><option value="Financeiro" />
+                </datalist>
                 <div className="flex gap-2">
                   <Button type="button" size="sm" className="h-7 text-xs" disabled={!newContact.name.trim() || createContactMutation.isPending} onClick={() => createContactMutation.mutate()}>Criar contato</Button>
                   <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowNewContact(false)}>Cancelar</Button>
@@ -231,27 +258,45 @@ export function NewDealDialog({
           <div className="space-y-2 border-t pt-3">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">3. Negócio</label>
             <Input placeholder="Título do negócio *" value={form.title} onChange={e => u('title', e.target.value)} className="text-sm" />
-            {/* Funil (obrigatório) — em qual funil o lead será criado */}
-            <Select
-              value={selectedPipelineId ?? ''}
-              onValueChange={v => { setSelectedPipelineId(v); setForm(p => ({ ...p, pipeline_stage_id: '' })) }}
-            >
-              <SelectTrigger className="text-sm">
-                <span className="flex items-center gap-1.5 text-slate-500"><GitBranch className="h-3.5 w-3.5" /></span>
-                <SelectValue placeholder="Escolha o funil" />
-              </SelectTrigger>
-              <SelectContent>
-                {pipelines.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            {/* Funil(is) — pode escolher VÁRIOS: cria um negócio independente por funil */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <GitBranch className="h-3.5 w-3.5" /> Funil(is) — escolha um ou mais
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {pipelines.map(p => {
+                  const on = selectedPipelineIds.includes(p.id)
+                  return (
+                    <button
+                      type="button" key={p.id}
+                      onClick={() => { togglePipeline(p.id); setForm(prev => ({ ...prev, pipeline_stage_id: '' })) }}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors inline-flex items-center gap-1 ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+                    >
+                      {on && <Check className="h-3 w-3" />}{p.name}
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedPipelineIds.length > 1 && (
+                <p className="text-[11px] text-indigo-600">
+                  Serão criados <b>{selectedPipelineIds.length} negócios independentes</b> (um por funil), vinculados ao mesmo contato — cada um avança e fecha por conta própria.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <Input type="number" placeholder="Valor (R$)" value={form.value} onChange={e => u('value', e.target.value)} className="text-sm" />
-              <Select value={effectiveStageId} onValueChange={v => u('pipeline_stage_id', v)}>
-                <SelectTrigger className="text-sm"><SelectValue placeholder="Etapa" /></SelectTrigger>
-                <SelectContent>
-                  {activeStages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {singlePipelineId ? (
+                <Select value={effectiveStageId} onValueChange={v => u('pipeline_stage_id', v)}>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder="Etapa" /></SelectTrigger>
+                  <SelectContent>
+                    {activeStages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex items-center px-3 rounded-md border border-slate-200 bg-slate-50 text-xs text-slate-400">
+                  1ª etapa de cada funil
+                </div>
+              )}
               <Select value={form.temperature} onValueChange={v => u('temperature', v)}>
                 <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -276,7 +321,9 @@ export function NewDealDialog({
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
             <Button type="submit" disabled={!canSubmit || createDealMutation.isPending}>
-              {createDealMutation.isPending ? 'Salvando...' : 'Criar negócio'}
+              {createDealMutation.isPending
+                ? 'Salvando...'
+                : selectedPipelineIds.length > 1 ? `Criar ${selectedPipelineIds.length} negócios` : 'Criar negócio'}
             </Button>
           </div>
         </form>
