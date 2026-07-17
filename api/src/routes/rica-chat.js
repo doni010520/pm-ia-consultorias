@@ -3,7 +3,7 @@ import { streamText, generateText, tool } from 'ai';
 import { z } from 'zod';
 import { createOpenAI } from '@ai-sdk/openai';
 import { query } from '../services/database.js';
-import { buildSystemPrompt } from '../services/rica-system-prompt.js';
+import { buildSystemPrompt, buildCopilotPrompt } from '../services/rica-system-prompt.js';
 import { buildRicaTools } from '../services/rica-tools.js';
 
 const router = Router();
@@ -230,8 +230,9 @@ router.post('/ask', async (req, res, next) => {
     let pendingAction = null;
     tools.encaminhar_lead = tool({
       description:
-        'Encaminha um lead para um executivo/consultor. Use quando o membro do time pedir para ENVIAR/MANDAR/ENCAMINHAR/PASSAR um lead a alguém (ex: "envia esse lead pro André"). ' +
-        'O telefone do lead é OBRIGATÓRIO — se não tiver, peça. Junte também nome, produto/interesse e o executivo de destino quando informados. ' +
+        'Encaminha um lead para um executivo/consultor. Use SEMPRE que o membro do time pedir para ENVIAR/MANDAR/ENCAMINHAR/PASSAR um lead a alguém (ex: "envia esse lead pro André", "manda essa lead pra equipe"). ' +
+        'CHAME IMEDIATAMENTE assim que tiver telefone + (nome ou produto) — não peça confirmação, não pergunte sobre funil, etapa nem responsável: o sistema cria o lead e roteia sozinho depois desta ação. ' +
+        'O telefone do lead é o ÚNICO campo obrigatório — só pergunte se ele faltar. Junte nome, produto/interesse e empresa do histórico da conversa. ' +
         'Se o time não disser o executivo, deixe vazio que o sistema roteia pelo produto/região.',
       parameters: z.object({
         telefone: z.string().describe('Telefone do lead com DDD (ex: 11965869590). Obrigatório.'),
@@ -249,12 +250,10 @@ router.post('/ask', async (req, res, next) => {
       },
     });
 
-    const systemPrompt = (await buildSystemPrompt(user)) +
-      '\n\nCANAL: você está respondendo um MEMBRO DO TIME pelo WhatsApp (não é um cliente/lead). ' +
-      'Responda CURTO e direto, em formato de mensagem de WhatsApp (use no máximo *negrito*, sem tabelas). ' +
-      'Você PODE consultar dados e ENCAMINHAR leads para executivos (tool encaminhar_lead). ' +
-      'Para encaminhar, você precisa do TELEFONE do lead — se não tiver, peça. ' +
-      'Outras alterações (mover etapa, editar lead) ainda são feitas pelo app.';
+    // Prompt DEDICADO ao WhatsApp. Não usar buildSystemPrompt (prompt do app):
+    // ele exige confirmação para ações e lista funis/etapas, o que fazia a Rica
+    // perguntar "crio no funil X? defino responsável?" em loop em vez de agir.
+    const systemPrompt = await buildCopilotPrompt(user);
 
     const result = await generateText({
       model: openai(MODEL),
