@@ -30,10 +30,25 @@ const READ_ONLY_TOOLS = [
  * Termos que, se aparecerem na mensagem, obrigam a consultar a base ANTES do
  * modelo decidir qualquer coisa.
  */
-const TERMOS_DE_CONHECIMENTO = [
+/**
+ * Nome de PRODUTO citado. Aqui já sabemos do que a conversa trata, então a busca
+ * pode ser mais permissiva: perguntas curtas como "quanto custa a jornada?" ficam
+ * em 0,41 de similaridade e seriam cortadas pelo piso normal, mesmo sendo
+ * exatamente sobre a ficha que temos.
+ */
+const TERMOS_DE_PRODUTO = [
   'jornada', 'jdl', 'lucratividade', 'gps padaria', 'gps resultado', 'gps',
-  'eneagrama', 'alexy', 'cmv', 'reforma tribut', 'margem', 'ticket m',
-  'propan', 'curso', 'masterclass',
+  'eneagrama', 'alexy', 'masterclass', 'curso',
+];
+
+/**
+ * Assunto sem produto nomeado. Piso normal, porque aqui a chance de trazer
+ * trecho fora de contexto é real.
+ */
+const TERMOS_DE_ASSUNTO = [
+  'cmv', 'reforma tribut', 'margem', 'ticket m', 'propan',
+  'preço', 'preco', 'valor', 'quanto custa', 'custa', 'parcel', 'pagamento',
+  'vitalício', 'vitalicio', 'garantia', 'acesso', 'o que inclui', 'conteúdo do curso',
 ];
 
 /**
@@ -51,7 +66,11 @@ const TERMOS_DE_CONHECIMENTO = [
  */
 async function buscarContextoDoConhecimento(mensagem) {
   const texto = String(mensagem || '').toLowerCase();
-  if (!TERMOS_DE_CONHECIMENTO.some((t) => texto.includes(t))) return '';
+  const citouProduto = TERMOS_DE_PRODUTO.some((t) => texto.includes(t));
+  const citouAssunto = TERMOS_DE_ASSUNTO.some((t) => texto.includes(t));
+  if (!citouProduto && !citouAssunto) return '';
+  // Produto nomeado dá contexto: o corte pode cair sem virar ruído.
+  const piso = citouProduto ? 0.35 : 0.45;
 
   const base = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const chave = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -74,7 +93,7 @@ async function buscarContextoDoConhecimento(mensagem) {
     });
     if (!rr.ok) return '';
     const docs = await rr.json();
-    const bons = (Array.isArray(docs) ? docs : []).filter((d) => (d.similarity ?? 0) >= 0.45);
+    const bons = (Array.isArray(docs) ? docs : []).filter((d) => (d.similarity ?? 0) >= piso);
     if (!bons.length) return '';
 
     const trechos = bons
