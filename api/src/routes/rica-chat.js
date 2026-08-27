@@ -81,9 +81,18 @@ async function buscarContextoDoConhecimento(mensagem) {
       .map((d) => `[${d.metadata?.arquivo || 'documento interno'}]\n${d.content}`)
       .join('\n\n---\n\n');
 
-    return `\n\n═══ BASE DE CONHECIMENTO (trechos relevantes para esta pergunta) ═══
-Use ESTES dados para responder. São a fonte oficial — não complete com memória
-nem invente número que não esteja aqui.
+    // O aviso precisa ser categórico. Com um texto mais brando o modelo ignorava
+    // o contexto em ~metade das tentativas e caía na regra "se não achar, diga
+    // que vai confirmar" — ele não chamou a tool, então tratava como "não achei",
+    // mesmo com os dados logo acima no prompt.
+    return `\n\n═══ BASE DE CONHECIMENTO — A RESPOSTA ESTÁ AQUI ═══
+A busca JÁ FOI FEITA para esta pergunta e os trechos oficiais estão abaixo.
+
+RESPONDA AGORA com estes dados. É PROIBIDO dizer "vou confirmar", "já te retorno"
+ou "vou checar com o comercial": a informação está aqui, e mandar a pessoa esperar
+por algo que você já tem é o pior desfecho possível.
+
+Não complete com memória nem invente número que não esteja nos trechos.
 
 ${trechos}
 ═══ fim dos trechos ═══\n`;
