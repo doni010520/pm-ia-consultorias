@@ -11,8 +11,10 @@ import { useProjects } from '@/hooks/useProjects'
 import { formatDate } from '@/lib/utils'
 
 export default function Atas() {
-  const [projectFilter, setProjectFilter] = useState<string>('')
-  const { data, isLoading, error } = useAtas(projectFilter ? { project_id: projectFilter } : undefined)
+  const [projectFilter, setProjectFilter] = useState<string>('all')
+  const { data, isLoading, error } = useAtas(
+    projectFilter && projectFilter !== 'all' ? { project_id: projectFilter } : undefined
+  )
   const { data: projectsData } = useProjects()
 
   return (

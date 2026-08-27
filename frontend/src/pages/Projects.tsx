@@ -15,9 +15,11 @@ import { useProjects, useCreateProject } from '@/hooks/useProjects'
 import { formatDate, formatCurrency, formatHours } from '@/lib/utils'
 
 export default function Projects() {
-  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
-  const { data, isLoading, error } = useProjects(statusFilter ? { status: statusFilter } : undefined)
+  const { data, isLoading, error } = useProjects(
+    statusFilter && statusFilter !== 'all' ? { status: statusFilter } : undefined
+  )
   const createProject = useCreateProject()
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {

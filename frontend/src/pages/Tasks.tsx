@@ -19,8 +19,10 @@ const columns = [
 ]
 
 export default function Tasks() {
-  const [projectFilter, setProjectFilter] = useState<string>('')
-  const { data, isLoading, error } = useTasks(projectFilter ? { project_id: projectFilter } : undefined)
+  const [projectFilter, setProjectFilter] = useState<string>('all')
+  const { data, isLoading, error } = useTasks(
+    projectFilter && projectFilter !== 'all' ? { project_id: projectFilter } : undefined
+  )
   const { data: projectsData } = useProjects()
   const updateStatus = useUpdateTaskStatus()
   const [draggingId, setDraggingId] = useState<string | null>(null)
