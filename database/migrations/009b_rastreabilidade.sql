@@ -1,9 +1,14 @@
 -- ============================================
--- MIGRATION 009: Rastreabilidade total de leads
+-- MIGRATION 009b: Rastreabilidade total de leads (origem + atribuicao)
 -- ============================================
+-- RENUMERADA: este arquivo se chamava 009_rastreabilidade.sql e COLIDIA com
+-- 009_crm_lead_journey.sql (dois arquivos "009" na mesma pasta). Renomeado para
+-- 009b para deixar a ordem de execucao deterministica:
+--     ... -> 008 -> 009 (crm_lead_journey) -> 009b (rastreabilidade) -> 010 ...
+--
 -- Adiciona:
 --   1. Colunas em deals para rastrear origem detalhada e como/quando foi atribuido
---   2. Tabela deal_messages para historico completo de mensagens (in/out) Rica<->Cliente
+--   2. (REMOVIDO) criacao da tabela deal_messages -- ver nota no fim do arquivo
 -- ============================================
 
 -- 1. Novas colunas em deals
@@ -26,38 +31,29 @@ SET assigned_via = 'historico',
     assigned_by = 'unknown'
 WHERE owner_id IS NOT NULL AND assigned_via IS NULL;
 
--- 2. Tabela deal_messages - historico completo de mensagens
-CREATE TABLE IF NOT EXISTS deal_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    deal_id UUID REFERENCES deals(id) ON DELETE CASCADE,    -- pode ser null se deal ainda nao existe
-    contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
-    contact_phone VARCHAR(50) NOT NULL,                     -- normalizado, sempre presente
-
-    direction VARCHAR(10) NOT NULL,                         -- 'in' (cliente) | 'out' (rica/sistema)
-    sender VARCHAR(50),                                     -- 'cliente' | 'rica_ai' | 'system_followup' | 'executive' | 'system_catchup'
-    content_type VARCHAR(20) DEFAULT 'text',                -- 'text' | 'image' | 'audio' | 'document' | 'system_note'
-    text TEXT,                                              -- conteudo principal
-    media_url TEXT,                                         -- url de media se aplicavel
-    raw_payload JSONB,                                      -- payload bruto pra debug
-
-    n8n_execution_id VARCHAR(50),                           -- id da execucao n8n correspondente
-    workflow_name VARCHAR(100),                             -- nome do workflow
-
-    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),             -- quando a mensagem foi efetivamente enviada/recebida
-    created_at TIMESTAMPTZ DEFAULT NOW()                    -- quando o registro foi gravado
-);
-
--- Indices
-CREATE INDEX IF NOT EXISTS idx_deal_messages_phone
-    ON deal_messages (organization_id, contact_phone, sent_at DESC);
-CREATE INDEX IF NOT EXISTS idx_deal_messages_deal
-    ON deal_messages (deal_id, sent_at);
-CREATE INDEX IF NOT EXISTS idx_deal_messages_contact
-    ON deal_messages (contact_id, sent_at);
-CREATE INDEX IF NOT EXISTS idx_deal_messages_direction
-    ON deal_messages (organization_id, direction, sent_at DESC);
+-- ============================================
+-- 2. deal_messages -- DEFINICAO REMOVIDA DESTE ARQUIVO
+-- ============================================
+-- Esta migration criava `deal_messages` com o schema
+--   (contact_phone, direction, sender, content_type, text, media_url,
+--    raw_payload, n8n_execution_id, workflow_name, sent_at)
+-- que e INCOMPATIVEL com o schema criado por 010_deal_messages.sql
+--   (role, channel, content, media_type, external_message_id,
+--    rica_session_id, metadata, occurred_at).
+--
+-- Como as duas usavam CREATE TABLE IF NOT EXISTS, o resultado dependia de qual
+-- rodasse primeiro -- nao-deterministico.
+--
+-- DECISAO: a definicao CANONICA de deal_messages e a de `010_deal_messages.sql`,
+-- porque e o schema que o codigo da API realmente usa
+-- (api/src/routes/crm.js: POST /messages, POST /deals/:id/messages,
+--  GET /deals/:id/messages, GET /contacts/by-phone/:phone/messages).
+--
+-- A migration `018_fechamento_deriva_schema.sql` reconcilia bancos que ja
+-- tenham a versao antiga desta tabela (adiciona as colunas do 010 e relaxa as
+-- NOT NULL herdadas do schema antigo).
+-- ============================================
 
 -- ============================================
--- FIM DA MIGRATION 009
+-- FIM DA MIGRATION 009b
 -- ============================================

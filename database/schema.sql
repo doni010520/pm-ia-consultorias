@@ -7,6 +7,18 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
+-- Funcao de updated_at definida CEDO: os triggers de transcricoes_pendentes e
+-- atas (mais abaixo neste arquivo) a referenciam antes da secao "TRIGGERS", e o
+-- CREATE TRIGGER exige que a funcao ja exista. Ela e redefinida (identica) na
+-- secao TRIGGERS -- como e CREATE OR REPLACE, redefinir e inofensivo.
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ============================================
 -- TABELAS PRINCIPAIS
 -- ============================================
