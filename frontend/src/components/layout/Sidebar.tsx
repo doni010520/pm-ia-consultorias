@@ -16,6 +16,7 @@ import {
   Home,
   CalendarDays,
   Building2,
+  FlaskConical,
   MessagesSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -33,6 +34,7 @@ const navGroups = [
       { to: '/crm/agenda', icon: CalendarDays, label: 'Agenda' },
       { to: '/crm/conversas', icon: MessagesSquare, label: 'Conversas' },
       { to: '/rica', icon: Bot, label: 'Rica AI' },
+      { to: '/rica/simulador', icon: FlaskConical, label: 'Simulador da Rica' },
       { to: '/crm/journey', icon: Route, label: 'Jornada do Lead' },
       { to: '/crm/templates', icon: FileSignature, label: 'Templates de Proposta' },
     ],

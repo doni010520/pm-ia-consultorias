@@ -579,6 +579,20 @@ export const crmApi = {
   rica: {
     stats: () =>
       request<import('@/types').RicaStats>(`/api/crm/rica/stats${withOrg()}`),
+    /** Conversa de teste com a Rica — sem WhatsApp e sem criar lead. */
+    simular: (body: {
+      mensagens: { papel: 'lead' | 'rica'; texto: string }[]
+      nome?: string
+      comTools?: boolean
+    }) =>
+      request<{
+        resposta: string
+        chamadas: { tool: string; argumentos: unknown; executada: boolean }[]
+        passos: number
+      }>(`/api/crm/rica/simular${withOrg()}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   // Conversas da Rica com os leads (somente leitura)

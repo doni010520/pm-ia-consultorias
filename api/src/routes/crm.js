@@ -3161,6 +3161,79 @@ router.get('/manager/overview', async (req, res, next) => {
 });
 
 // ============================================
+// RICA AI — SIMULADOR DE CONVERSA
+// ============================================
+
+/**
+ * POST /api/crm/rica/simular
+ *
+ * Ponte para o `/admin/simular` do rica-bot: a equipe conversa com a Rica pela
+ * tela, sem WhatsApp e sem virar lead no funil.
+ *
+ * Existe como proxy (e não chamada direta do navegador) porque o ADMIN_TOKEN do
+ * bot NÃO pode ir para o browser — de lá qualquer pessoa leria os logs do bot.
+ *
+ * Config no EasyPanel deste backend:
+ *   RICA_BOT_URL          ex: https://productstudio-rica-bot.zsvt2k.easypanel.host
+ *   RICA_BOT_ADMIN_TOKEN  o mesmo ADMIN_TOKEN do serviço do bot
+ */
+router.post('/rica/simular', async (req, res, next) => {
+  try {
+    const base = (process.env.RICA_BOT_URL || '').replace(/\/+$/, '');
+    const token = process.env.RICA_BOT_ADMIN_TOKEN || '';
+
+    if (!base) {
+      return res.status(503).json({
+        error: 'simulador_nao_configurado',
+        message: 'Falta RICA_BOT_URL nas variáveis deste backend (EasyPanel).',
+      });
+    }
+
+    const { mensagens, nome, comTools } = req.body || {};
+    if (!Array.isArray(mensagens) || mensagens.length === 0) {
+      return res.status(400).json({ error: 'envie ao menos uma mensagem' });
+    }
+
+    // Timeout próprio: o agente pode encadear várias tool calls, e sem isso a
+    // requisição do navegador ficaria pendurada até o proxy desistir.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90_000);
+
+    let upstream;
+    try {
+      upstream = await fetch(`${base}/admin/simular`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+        body: JSON.stringify({ mensagens, nome, comTools }),
+        signal: ctrl.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      const abortou = err && err.name === 'AbortError';
+      return res.status(504).json({
+        error: abortou ? 'timeout' : 'bot_inacessivel',
+        message: abortou
+          ? 'A Rica demorou mais de 90s para responder.'
+          : 'Não foi possível falar com o rica-bot. Confira RICA_BOT_URL.',
+      });
+    }
+    clearTimeout(timer);
+
+    const texto = await upstream.text();
+    let corpo;
+    try { corpo = JSON.parse(texto); } catch { corpo = { error: 'resposta_invalida', raw: texto.slice(0, 300) }; }
+
+    if (upstream.status === 401) {
+      return res.status(502).json({
+        error: 'token_invalido',
+        message: 'O rica-bot recusou o token. Confira RICA_BOT_ADMIN_TOKEN.',
+      });
+    }
+    return res.status(upstream.ok ? 200 : upstream.status).json(corpo);
+  } catch (error) { next(error); }
+});
+
+// ============================================
 // RICA AI — KPIs & STATS
 // ============================================
 

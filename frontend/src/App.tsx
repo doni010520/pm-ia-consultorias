@@ -22,6 +22,7 @@ import CapacityCalendar from '@/pages/CapacityCalendar'
 import CRM from '@/pages/CRM'
 import CrmAgenda from '@/pages/CrmAgenda'
 import Conversas from '@/pages/Conversas'
+import SimuladorRica from '@/pages/SimuladorRica'
 import Empresas from '@/pages/Empresas'
 import EmpresaDetail from '@/pages/EmpresaDetail'
 import ContatoDetail from '@/pages/ContatoDetail'
@@ -85,6 +86,7 @@ function ProtectedLayout() {
             <Route path="/crm" element={<CRM />} />
             <Route path="/crm/agenda" element={<CrmAgenda />} />
             <Route path="/crm/conversas" element={<Conversas />} />
+            <Route path="/rica/simulador" element={<SimuladorRica />} />
             <Route path="/crm/empresas" element={<Empresas />} />
             <Route path="/crm/empresas/:id" element={<EmpresaDetail />} />
             <Route path="/crm/contatos/:id" element={<ContatoDetail />} />
