@@ -1,0 +1,17 @@
+# Não existia .gitignore na raiz: só api/ e frontend/ tinham o seu. Rodar
+# qualquer ferramenta a partir da raiz (vitest, por exemplo) criava node_modules
+# aqui, fora da cobertura dos dois — e um results.json de cache chegou a ser
+# commitado por isso.
+node_modules/
+.vite/
+dist/
+build/
+
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
