@@ -3183,15 +3183,19 @@ router.post('/rica/simular', async (req, res, next) => {
     const token = process.env.RICA_BOT_ADMIN_TOKEN || '';
 
     if (!base) {
+      // Formato { error: { message } } -- e o que o request() do frontend le.
+      // Com { error: 'x', message: 'y' } a tela mostraria so "HTTP 503".
       return res.status(503).json({
-        error: 'simulador_nao_configurado',
-        message: 'Falta RICA_BOT_URL nas variáveis deste backend (EasyPanel).',
+        error: {
+          code: 'simulador_nao_configurado',
+          message: 'Simulador não configurado: falta RICA_BOT_URL nas variáveis deste backend (EasyPanel).',
+        },
       });
     }
 
     const { mensagens, nome, comTools } = req.body || {};
     if (!Array.isArray(mensagens) || mensagens.length === 0) {
-      return res.status(400).json({ error: 'envie ao menos uma mensagem' });
+      return res.status(400).json({ error: { message: 'Envie ao menos uma mensagem.' } });
     }
 
     // Timeout próprio: o agente pode encadear várias tool calls, e sem isso a
@@ -3211,10 +3215,12 @@ router.post('/rica/simular', async (req, res, next) => {
       clearTimeout(timer);
       const abortou = err && err.name === 'AbortError';
       return res.status(504).json({
-        error: abortou ? 'timeout' : 'bot_inacessivel',
-        message: abortou
-          ? 'A Rica demorou mais de 90s para responder.'
-          : 'Não foi possível falar com o rica-bot. Confira RICA_BOT_URL.',
+        error: {
+          code: abortou ? 'timeout' : 'bot_inacessivel',
+          message: abortou
+            ? 'A Rica demorou mais de 90s para responder. Tente de novo.'
+            : 'Não foi possível falar com o rica-bot. Confira RICA_BOT_URL.',
+        },
       });
     }
     clearTimeout(timer);
@@ -3225,8 +3231,10 @@ router.post('/rica/simular', async (req, res, next) => {
 
     if (upstream.status === 401) {
       return res.status(502).json({
-        error: 'token_invalido',
-        message: 'O rica-bot recusou o token. Confira RICA_BOT_ADMIN_TOKEN.',
+        error: {
+          code: 'token_invalido',
+          message: 'O rica-bot recusou o token. Confira RICA_BOT_ADMIN_TOKEN.',
+        },
       });
     }
     return res.status(upstream.ok ? 200 : upstream.status).json(corpo);
