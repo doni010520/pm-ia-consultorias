@@ -1,11 +1,27 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { query, createTask, getTasks } from './database.js';
+import {
+  fetchAllConsultantsData,
+  generateDayCapacities,
+  aggregateByWeek,
+} from './capacity.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function orgFilter(orgId) {
   return orgId;
+}
+
+// Converte Date/string para 'YYYY-MM-DD' (mesmo formato usado por capacity.js)
+function toDateStr(date) {
+  if (!date) return null;
+  if (typeof date === 'string') return date.substring(0, 10);
+  return new Date(date).toISOString().substring(0, 10);
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 // ─── Factory principal ───────────────────────────────────────────────────────
@@ -630,29 +646,62 @@ export function buildRicaTools(user) {
   // ── CAPACIDADE — LEITURA ─────────────────────────────────────────────────
 
   const get_team_capacity = tool({
-    description: 'Retorna resumo de capacidade e disponibilidade da equipe para as próximas semanas.',
+    description: 'Capacidade e disponibilidade da equipe numa janela de N semanas a partir de hoje. Considera alocações ativas em projetos, tarefas em aberto, fins de semana e bloqueios do calendário (férias, licenças, feriados, treinamentos) — quem está de férias no período aparece com capacidade reduzida ou zerada. Os valores em horas são TOTAIS DA JANELA inteira, não horas por semana. Use para "quem tem disponibilidade nas próximas N semanas", "quem está sobrecarregado", "quem está de férias".',
     parameters: z.object({
-      weeks: z.number().int().min(1).max(8).optional().default(4),
+      weeks: z.number().int().min(1).max(8).optional().default(4).describe('Tamanho da janela, em semanas a partir de hoje.'),
     }),
-    execute: async ({ weeks }) => {
-      const result = await query(
-        `SELECT u.id, u.name,
-                COALESCE(u.weekly_capacity, 40) as weekly_capacity,
-                (SELECT COALESCE(SUM(pa.hours_per_week), 0)
-                 FROM project_allocations pa
-                 JOIN projects p ON p.id = pa.project_id
-                 WHERE pa.user_id = u.id AND p.status = 'active') as allocated_hours
-         FROM users u
-         WHERE u.organization_id = $1 AND u.is_active = true AND u.role = 'consultant'
-         ORDER BY u.name`,
-        [orgId]
-      );
+    execute: async ({ weeks = 4 }) => {
+      // Janela de N semanas a partir de hoje (inclusive)
+      const today = new Date();
+      const startDate = today.toISOString().split('T')[0];
+      const end = new Date(today);
+      end.setDate(end.getDate() + weeks * 7 - 1);
+      const endDate = end.toISOString().split('T')[0];
+
+      // Reusa o motor de capacidade (mesmo cálculo das rotas /capacity e do Gantt)
+      const data = await fetchAllConsultantsData(orgId, startDate, endDate);
+
+      const team = data.users.map((user) => {
+        const userAllocations = data.allocations.filter((a) => a.user_id === user.id);
+        const userBlocks = data.blocks.filter((b) => b.user_id === user.id);
+        const userTasks = data.tasks.filter((t) => t.user_id === user.id);
+
+        const days = generateDayCapacities(user, userAllocations, userBlocks, userTasks, startDate, endDate);
+        const semanas = aggregateByWeek(days);
+
+        const weeklyCapacity = parseFloat(user.weekly_capacity) || 40;
+        const dailyCapacity = Math.round(weeklyCapacity / 5);
+        const blockedDays = days.filter((d) => d.is_blocked).length;
+
+        // capacity_hours ja vem liquido: dias bloqueados e fins de semana valem 0
+        const capacityHours = round2(semanas.reduce((acc, w) => acc + w.capacity, 0));
+        const allocatedHours = round2(semanas.reduce((acc, w) => acc + w.allocated, 0));
+        const freeHours = round2(semanas.reduce((acc, w) => acc + w.available, 0));
+
+        return {
+          id: user.id,
+          name: user.name,
+          weekly_capacity: weeklyCapacity,
+          capacity_hours: capacityHours,
+          allocated_hours: allocatedHours,
+          free_hours: freeHours,
+          utilization_pct: capacityHours > 0 ? Math.round((allocatedHours / capacityHours) * 100) : 0,
+          blocked_days: blockedDays,
+          blocked_hours: round2(blockedDays * dailyCapacity),
+          blocks: userBlocks.map((b) => ({
+            start_date: toDateStr(b.start_date),
+            end_date: toDateStr(b.end_date),
+            reason: b.reason,
+            block_type: b.block_type,
+          })),
+          por_semana: semanas,
+        };
+      });
+
       return {
-        team: result.rows.map(r => ({
-          ...r,
-          free_hours: Math.max(0, (r.weekly_capacity || 40) - (parseFloat(r.allocated_hours) || 0)),
-        })),
-        period_weeks: weeks,
+        period: { weeks, start_date: startDate, end_date: endDate },
+        unidade: `Horas TOTAIS na janela de ${weeks} semana(s) (${startDate} a ${endDate}). capacity_hours e free_hours ja descontam fins de semana e dias bloqueados; blocked_hours e o quanto foi perdido para ferias/licencas no periodo.`,
+        team,
       };
     },
   });
@@ -671,9 +720,9 @@ export function buildRicaTools(user) {
           [user_id]
         ),
         query(
-          `SELECT p.name as project_name, pa.hours_per_week, pa.start_date, pa.end_date
-           FROM project_allocations pa JOIN projects p ON p.id = pa.project_id
-           WHERE pa.user_id = $1 AND p.status = 'active' ORDER BY pa.start_date`,
+          `SELECT p.name as project_name, pm.hours_per_week, pm.start_date, pm.end_date
+           FROM project_members pm JOIN projects p ON p.id = pm.project_id
+           WHERE pm.user_id = $1 AND pm.is_active = true AND p.status = 'active' ORDER BY pm.start_date`,
           [user_id]
         ),
       ]);

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { query } from '../services/database.js';
 import {
   parseFilename,
   generateChave,

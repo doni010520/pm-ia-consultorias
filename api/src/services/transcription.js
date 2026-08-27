@@ -251,7 +251,7 @@ export async function confirmAndProcess(chave, organizationId) {
     const ataResult = await client.query(
       `INSERT INTO atas (
         organization_id, project_id, transcricao_id,
-        titulo, data_reuniao, participantes, resumo, conteudo_markdown,
+        titulo, data_reuniao, participantes, resumo_executivo, conteudo_markdown,
         status_projeto, fase_projeto
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
@@ -286,7 +286,7 @@ export async function confirmAndProcess(chave, organizationId) {
         }
 
         const acaoResult = await client.query(
-          `INSERT INTO ata_acoes (ata_id, descricao, responsavel, responsavel_id, prazo, tipo, evidencia_minima)
+          `INSERT INTO ata_acoes (ata_id, descricao, responsavel_nome, responsavel_id, prazo, tipo, evidencia_minima)
            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
           [
             ata.id,
@@ -316,7 +316,7 @@ export async function confirmAndProcess(chave, organizationId) {
               acaoData.responsavel_id,
               acaoData.prazo,
               'todo',
-              'medium',
+              'normal',
               'ata'
             ]
           );

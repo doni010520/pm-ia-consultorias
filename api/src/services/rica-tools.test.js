@@ -65,14 +65,19 @@ describe('relatorio_leads', () => {
 
   it('GPS este mês via whatsapp — filtra funil + origem + mês e soma o total', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ funil: 'GPS', qtd: 16, sem_responsavel: 16 }] }) // agregado
+      .mockResolvedValueOnce({ rows: [{ funil: 'GPS', qtd: 16, sem_responsavel: 4 }] })                    // agregado por funil
+      .mockResolvedValueOnce({ rows: [{ responsavel: 'André', qtd: 12 }, { responsavel: 'Sem responsável', qtd: 4 }] }) // agregado por responsável
       .mockResolvedValueOnce({ rows: [{ contact_name: 'Regina', funil: 'GPS' }, { contact_name: 'Jr', funil: 'GPS' }] }) // lista
 
     const result = await tools.relatorio_leads.execute({ period: 'mes', pipeline_name: 'GPS', source: 'whatsapp' })
 
     expect(result.total).toBe(16)
     expect(result.por_funil).toHaveLength(1)
+    expect(result.por_responsavel).toHaveLength(2)
     expect(result.leads).toHaveLength(2)
+    expect(result.mostrando).toBe(2)
+    // total (16) > itens listados (2) => a tool avisa que truncou
+    expect(result.observacao).toContain('Mostrando 2 de 16')
 
     const aggSql = query.mock.calls[0][0]
     expect(aggSql).toContain("date_trunc('month', NOW())")
@@ -85,7 +90,10 @@ describe('relatorio_leads', () => {
   })
 
   it('mês passado usa janela do mês anterior', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
+    query
+      .mockResolvedValueOnce({ rows: [] })  // agregado por funil
+      .mockResolvedValueOnce({ rows: [] })  // agregado por responsável
+      .mockResolvedValueOnce({ rows: [] })  // lista
 
     await tools.relatorio_leads.execute({ period: 'mes_passado' })
 
@@ -462,5 +470,103 @@ describe('update_ata_action', () => {
 
     expect(result.error).toBeDefined()
     expect(query.mock.calls.some(c => c[0].includes('UPDATE'))).toBe(false)
+  })
+})
+
+// ─── get_team_capacity ────────────────────────────────────────────────────────
+
+describe('get_team_capacity', () => {
+  let tools
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    tools = buildRicaTools(FAKE_USER)
+  })
+
+  // fetchAllConsultantsData faz 4 queries em Promise.all, nesta ordem:
+  // users, allocations (project_members), blocks (consultant_blocks), tasks
+  function mockCapacity({ users = [], allocations = [], blocks = [], tasks = [] } = {}) {
+    query
+      .mockResolvedValueOnce({ rows: users })
+      .mockResolvedValueOnce({ rows: allocations })
+      .mockResolvedValueOnce({ rows: blocks })
+      .mockResolvedValueOnce({ rows: tasks })
+  }
+
+  const ANA = { id: 'u1', name: 'Ana', email: 'ana@x.com', weekly_capacity: 40 }
+
+  it('janela de 1 semana = 5 dias uteis; desconta a alocacao do projeto', async () => {
+    mockCapacity({
+      users: [ANA],
+      allocations: [{ user_id: 'u1', project_id: 'p1', project_name: 'Projeto X', hours_per_week: 20, start_date: null, end_date: null }],
+    })
+
+    const result = await tools.get_team_capacity.execute({ weeks: 1 })
+
+    const ana = result.team[0]
+    // 7 dias corridos => 5 dias uteis x (40/5) = 40h de capacidade
+    expect(ana.capacity_hours).toBe(40)
+    // 20h/semana => 4h/dia x 5 dias = 20h alocadas, sobram 20h
+    expect(ana.allocated_hours).toBe(20)
+    expect(ana.free_hours).toBe(20)
+    expect(ana.utilization_pct).toBe(50)
+    expect(ana.blocked_days).toBe(0)
+  })
+
+  it('honra o parametro weeks: 2 semanas = o dobro da capacidade', async () => {
+    mockCapacity({ users: [ANA] })
+
+    const result = await tools.get_team_capacity.execute({ weeks: 2 })
+
+    expect(result.period.weeks).toBe(2)
+    expect(result.team[0].capacity_hours).toBe(80)  // 10 dias uteis x 8h
+    expect(result.team[0].free_hours).toBe(80)
+  })
+
+  it('desconta ferias: bloqueio cobrindo a janela zera a disponibilidade', async () => {
+    mockCapacity({
+      users: [ANA],
+      allocations: [{ user_id: 'u1', project_id: 'p1', project_name: 'Projeto X', hours_per_week: 20, start_date: null, end_date: null }],
+      blocks: [{ user_id: 'u1', id: 'b1', start_date: '2000-01-01', end_date: '2100-01-01', reason: 'Ferias', block_type: 'vacation' }],
+    })
+
+    const result = await tools.get_team_capacity.execute({ weeks: 1 })
+
+    const ana = result.team[0]
+    expect(ana.capacity_hours).toBe(0)
+    expect(ana.free_hours).toBe(0)
+    expect(ana.blocked_days).toBe(5)      // 5 dias uteis bloqueados
+    expect(ana.blocked_hours).toBe(40)    // 5 x 8h perdidas para ferias
+    expect(ana.blocks[0].reason).toBe('Ferias')
+    expect(ana.blocks[0].block_type).toBe('vacation')
+  })
+
+  it('passa a janela e a organizacao para as queries de capacidade', async () => {
+    mockCapacity({ users: [ANA] })
+
+    const result = await tools.get_team_capacity.execute({ weeks: 3 })
+
+    // isolamento por organizacao na busca de usuarios
+    expect(query.mock.calls[0][1]).toContain('org-aaa')
+    // alocacoes/bloqueios/tarefas recebem a mesma janela
+    for (const i of [1, 2, 3]) {
+      expect(query.mock.calls[i][1]).toContain(result.period.start_date)
+      expect(query.mock.calls[i][1]).toContain(result.period.end_date)
+    }
+    // bloqueios vem de consultant_blocks
+    expect(query.mock.calls[2][0]).toContain('consultant_blocks')
+
+    // janela de 3 semanas = 20 dias corridos depois de hoje
+    const dias = (new Date(result.period.end_date) - new Date(result.period.start_date)) / 86400000
+    expect(dias).toBe(20)
+  })
+
+  it('nao filtra por role: qualquer membro ativo entra no calculo', async () => {
+    mockCapacity({ users: [ANA, { id: 'u2', name: 'Bruno', email: 'b@x.com', weekly_capacity: 40 }] })
+
+    const result = await tools.get_team_capacity.execute({ weeks: 1 })
+
+    expect(result.team).toHaveLength(2)
+    expect(query.mock.calls[0][0]).not.toContain('consultant')
   })
 })
