@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Search, Plus, LayoutGrid, List, Phone,
@@ -117,6 +118,10 @@ function activityIcon(type: string) {
 export default function CRM() {
   const queryClient = useQueryClient()
 
+  // Deep link para um card especifico: /crm?deal=<id>
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dealParam = searchParams.get('deal')
+
   // Pipeline selection state
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
 
@@ -128,7 +133,7 @@ export default function CRM() {
   const [sourceFilter, setSourceFilter] = useState('all')
 
   // Modal state
-  const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
+  const [selectedDealId, setSelectedDealId] = useState<string | null>(dealParam)
   const [showNewDeal, setShowNewDeal] = useState(false)
   const [showAutomations, setShowAutomations] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
@@ -712,7 +717,10 @@ export default function CRM() {
         <DealDetailModal
           dealId={selectedDealId}
           stages={stages}
-          onClose={() => setSelectedDealId(null)}
+          onClose={() => {
+            setSelectedDealId(null)
+            if (dealParam) setSearchParams({}, { replace: true })
+          }}
           onMoveDeal={(stageId) => attemptMove(selectedDealId, stageId)}
         />
       )}

@@ -322,7 +322,7 @@ export const crmApi = {
         request<{ deleted: boolean }>(`/api/crm/pipeline/${id}`, { method: 'DELETE' }),
       reorder: (stages: { id: string; position: number }[]) =>
         request<{ stages: import('@/types').PipelineStage[] }>('/api/crm/pipeline/reorder', {
-          method: 'POST',
+          method: 'PATCH',
           body: JSON.stringify({ stages, organization_id: ORG_ID }),
         }),
     }
@@ -435,7 +435,7 @@ export const crmApi = {
       }),
     messages: {
       list: (dealId: string, params?: { limit?: number; before?: string }) =>
-        request<{ messages: import('@/types').DealMessage[]; count: number }>(
+        request<{ messages: import('@/types').DealMessage[]; total: number }>(
           `/api/crm/deals/${dealId}/messages${params ? `?${new URLSearchParams(params as Record<string, string>)}` : ''}`
         ),
       create: (dealId: string, data: Record<string, unknown>) =>
@@ -566,7 +566,7 @@ export const crmApi = {
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/api/crm/automations/${id}`, { method: 'DELETE' }),
     log: (id: string) =>
-      request<{ logs: import('@/types').DealAutomationLog[] }>(`/api/crm/automations/${id}/logs`),
+      request<{ log: import('@/types').DealAutomationLog[] }>(`/api/crm/automations/${id}/log`),
   },
 
   // Stats (supports pipeline_id filter)
@@ -579,6 +579,24 @@ export const crmApi = {
   rica: {
     stats: () =>
       request<import('@/types').RicaStats>(`/api/crm/rica/stats${withOrg()}`),
+  },
+
+  // Conversas da Rica com os leads (somente leitura)
+  conversations: {
+    list: (filters?: { search?: string; limit?: number; offset?: number }) =>
+      request<{ conversations: import('@/types').Conversation[]; total: number }>(
+        `/api/crm/conversations${withOrg({
+          search: filters?.search || undefined,
+          limit: filters?.limit !== undefined ? String(filters.limit) : undefined,
+          offset: filters?.offset ? String(filters.offset) : undefined,
+        })}`
+      ),
+    messages: (phone: string, params?: { limit?: number }) =>
+      request<{ messages: import('@/types').ConversationMessage[]; total: number }>(
+        `/api/crm/contacts/by-phone/${encodeURIComponent(phone)}/messages${withOrg({
+          limit: params?.limit !== undefined ? String(params.limit) : undefined,
+        })}`
+      ),
   },
 
   // Cockpit do Gestor
@@ -612,7 +630,7 @@ export const integrationsApi = {
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>
-    request<{ atas: import('@/types').Ata[]; count: number }>(
+    request<{ atas: import('@/types').Ata[]; total: number }>(
       `/api/transcriptions/atas/list${withOrg(filters)}`
     ),
   get: (id: string) =>

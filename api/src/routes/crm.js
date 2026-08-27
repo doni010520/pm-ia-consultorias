@@ -33,6 +33,71 @@ function isOwnerScoped(req) {
 }
 
 // ============================================
+// DIRECAO / REMETENTE DE UMA MENSAGEM
+// ============================================
+// `metadata->>'direction'` so e preenchido por POST /api/crm/messages (caminho
+// do n8n, que recebe `direction` no payload da Rica). As mensagens gravadas por
+// POST /api/crm/deals/:id/messages entram com `metadata` sem `direction` -- e
+// TODO o historico ja gravado por esse caminho esta com NULL.
+//
+// O frontend alinha as bolhas da conversa pela direcao (lead a esquerda, Rica a
+// direita); com NULL o thread fica ilegivel. Por isso o COALESCE abaixo deriva a
+// direcao de `role` quando o metadata nao tem.
+//
+// NAO REMOVA este fallback sem antes fazer backfill de metadata->>'direction'
+// no historico: corrigir o produtor nao conserta o que ja esta no banco.
+//
+// Valores de `role` que o codigo grava (ver migration 018): client, lead,
+// cliente, rica, rica_ai, agent, system, system_followup, executive,
+// system_catchup.
+const ROLES_IN = ['client', 'lead', 'cliente'];
+const ROLES_OUT = ['rica', 'rica_ai', 'agent', 'system', 'system_followup', 'executive', 'system_catchup'];
+
+function sqlList(values) {
+  return values.map((v) => `'${v}'`).join(', ');
+}
+
+/** Expressao SQL para `direction` ('in' | 'out' | NULL), com fallback por role. */
+function directionSql(alias) {
+  return `COALESCE(
+                ${alias}.metadata->>'direction',
+                CASE
+                  WHEN ${alias}.role IN (${sqlList(ROLES_IN)})  THEN 'in'
+                  WHEN ${alias}.role IN (${sqlList(ROLES_OUT)}) THEN 'out'
+                  ELSE NULL
+                END
+              )`;
+}
+
+/**
+ * Expressao SQL para `sender`. Mesmo problema do `direction`: quando o metadata
+ * nao traz, `role` ja guarda exatamente esse valor -- POST /api/crm/messages
+ * grava o `sender` do payload dentro de `role`.
+ */
+function senderSql(alias) {
+  return `COALESCE(${alias}.metadata->>'sender', ${alias}.role)`;
+}
+
+// ============================================
+// ORDEM DO THREAD DE MENSAGENS
+// ============================================
+// Um chat precisa das mensagens MAIS RECENTES quando a conversa e maior que o
+// `limit`. `ORDER BY occurred_at ASC ... LIMIT n` devolve as n mensagens mais
+// ANTIGAS -- a tela abriria no comeco da conversa e sumiria justamente com o que
+// acabou de acontecer.
+//
+// Entao a CONSULTA e feita em `occurred_at DESC, id DESC` (o LIMIT corta o lado
+// antigo, que e o certo) e o resultado e invertido AQUI, para o cliente continuar
+// recebendo em ordem cronologica CRESCENTE -- formato que o frontend antigo (aba
+// "Conversa Rica") e o novo esperam. Nao troque o DESC da query por ASC "para
+// simplificar": o bug volta.
+//
+// `.slice()` antes do `.reverse()` porque `reverse()` muta o array recebido.
+function orderNewestFirstThenReverse(rows) {
+  return rows.slice().reverse();
+}
+
+// ============================================
 // AUTOMATION EXECUTION HELPER
 // ============================================
 
@@ -69,8 +134,11 @@ async function executeAutomations(dealId, triggerType, triggerData, orgId) {
 
           case 'create_task': {
             await query(
-              `INSERT INTO tasks (organization_id, title, description, deal_id, assigned_to, due_date, status)
-               VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+              // Coluna do responsavel e assignee_id (assigned_to nao existe) e o status
+              // inicial e 'todo' -- 'pending' ficava fora do conjunto usado nos filtros
+              // das telas, entao a tarefa criada pela automacao nunca aparecia.
+              `INSERT INTO tasks (organization_id, title, description, deal_id, assignee_id, due_date, status)
+               VALUES ($1, $2, $3, $4, $5, $6, 'todo')`,
               [
                 orgId,
                 actionConfig.task_title || `Tarefa automatica: ${automation.name}`,
@@ -2382,33 +2450,41 @@ router.post('/deals/:id/messages', async (req, res, next) => {
 /**
  * GET /api/crm/deals/:id/messages
  * Retorna mensagens de um deal, com paginacao por cursor (before) e campos enriquecidos.
+ * Alimenta a aba "Conversa Rica" do card do deal.
+ *
+ * Ordem: a CONSULTA e feita em occurred_at DESC (com o LIMIT), e o resultado e
+ * INVERTIDO aqui no servidor -- ver comentario em `orderNewestFirstThenReverse`.
+ * A resposta continua em ordem cronologica CRESCENTE, como sempre foi.
  */
 router.get('/deals/:id/messages', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const { id } = req.params;
     const { before } = req.query;
-    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 200, 1), 1000);
 
-    let sql = `SELECT id, role, channel, content as text, media_url, media_type,
-              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
-              metadata->>'direction' as direction,
-              metadata->>'sender' as sender
-       FROM deal_messages
-       WHERE deal_id = $1 AND organization_id = $2`;
+    let sql = `SELECT dm.id, dm.role, dm.channel, dm.content as text,
+              dm.media_url, dm.media_type,
+              dm.rica_session_id as phone, dm.metadata,
+              dm.occurred_at as sent_at, dm.created_at,
+              ${directionSql('dm')} as direction,
+              ${senderSql('dm')} as sender
+       FROM deal_messages dm
+       WHERE dm.deal_id = $1 AND dm.organization_id = $2`;
     const params = [id, orgId];
     let idx = 3;
 
     if (before) {
-      sql += ` AND occurred_at < $${idx++}`;
+      sql += ` AND dm.occurred_at < $${idx++}::timestamptz`;
       params.push(before);
     }
 
-    sql += ` ORDER BY occurred_at ASC LIMIT $${idx}`;
+    sql += ` ORDER BY dm.occurred_at DESC, dm.id DESC LIMIT $${idx++}`;
     params.push(limit);
 
     const result = await query(sql, params);
-    res.json({ messages: result.rows, total: result.rows.length });
+    const messages = orderNewestFirstThenReverse(result.rows);
+    res.json({ messages, total: messages.length });
   } catch (error) {
     next(error);
   }
@@ -2417,26 +2493,217 @@ router.get('/deals/:id/messages', async (req, res, next) => {
 /**
  * GET /api/crm/contacts/:phone/messages
  * Retorna todas mensagens trocadas com o telefone, mesmo que ainda nao tenha deal_id.
+ * Este e o thread de UMA conversa (o telefone e a chave), usado tanto pela aba
+ * "Conversa Rica" do card do deal quanto pela tela de conversas.
+ *
+ * Query params:
+ *   - limit  : default 200, maximo 1000
+ *   - before : cursor -- so mensagens com occurred_at < before (pagina para TRAS,
+ *              isto e, mensagens mais antigas; e o que a tela faz ao rolar pra cima)
+ *   - offset : paginacao simples (default 0), contada a partir da mensagem MAIS RECENTE
+ *
+ * Ordem: a CONSULTA e feita em occurred_at DESC (com o LIMIT), e o resultado e
+ * INVERTIDO aqui no servidor -- ver `orderNewestFirstThenReverse`. A resposta
+ * continua em ordem cronologica CRESCENTE, como sempre foi.
+ * `direction` e `sender` saem de `metadata`, com fallback por `role`.
  */
 router.get('/contacts/by-phone/:phone/messages', async (req, res, next) => {
   try {
     const orgId = getOrgId(req);
     const cleanPhone = String(req.params.phone).replace(/\D/g, '');
-    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 200, 1), 1000);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+    const { before } = req.query;
+
+    // `direction` e `sender` mantem os MESMOS nomes de campo de sempre; so o
+    // valor ficou confiavel (fallback por role -- ver directionSql/senderSql).
+    let sql = `SELECT dm.id, dm.deal_id, dm.role, dm.channel, dm.content as text,
+              dm.media_url, dm.media_type,
+              dm.rica_session_id as phone, dm.metadata,
+              dm.occurred_at as sent_at, dm.created_at,
+              ${directionSql('dm')} as direction,
+              ${senderSql('dm')} as sender
+       FROM deal_messages dm
+       WHERE dm.organization_id = $1
+         AND dm.rica_session_id = $2`;
+    const params = [orgId, cleanPhone];
+    let idx = 3;
+
+    if (before) {
+      sql += ` AND dm.occurred_at < $${idx++}::timestamptz`;
+      params.push(before);
+    }
+
+    sql += ` ORDER BY dm.occurred_at DESC, dm.id DESC LIMIT $${idx++} OFFSET $${idx++}`;
+    params.push(limit, offset);
+
+    const result = await query(sql, params);
+    const messages = orderNewestFirstThenReverse(result.rows);
+    res.json({ messages, total: messages.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// CONVERSAS DA RICA (somente leitura)
+// ============================================
+
+/**
+ * GET /api/crm/conversations
+ * Lista as conversas da Rica agrupadas por TELEFONE (nao por deal).
+ *
+ * Por que por telefone: `deal_messages.rica_session_id` guarda o telefone
+ * normalizado (so digitos) -- e essa e a chave real da conversa. Mensagens
+ * podem ter `deal_id` NULL (lead ainda sem deal) e um mesmo telefone pode ter
+ * varios deals ao longo do tempo.
+ *
+ * Query params:
+ *   - search : nome do contato ou telefone (parcial)
+ *   - limit  : default 100, maximo 200
+ *   - offset : default 0
+ *
+ * Resposta:
+ *   { conversations: [{ phone, contact_id, contact_name,
+ *                       deal_id, deal_title, pipeline_name, owner_id, owner_name,
+ *                       deal_status, last_message_at, last_message_text,
+ *                       last_message_direction, message_count }], total }
+ *
+ * Escopo: sempre por organizacao. Usuario `member` (executivo) so ve conversas
+ * cujo deal seja dele; conversa sem deal associado e visivel para todos.
+ *
+ * Performance: um unico GROUP BY sobre `deal_messages` servido pelo indice
+ * (organization_id, rica_session_id, occurred_at DESC) resolve, na mesma
+ * passada, a ultima mensagem (via ARRAY_AGG ordenado) e o `message_count`.
+ * Ver migration 019.
+ */
+const CONVERSATIONS_CTE = `
+    WITH conv AS (
+      SELECT
+        dm.rica_session_id AS phone,
+        MAX(dm.occurred_at) AS last_message_at,
+        COUNT(*)::int       AS message_count,
+        (ARRAY_AGG(LEFT(dm.content, 120)      ORDER BY dm.occurred_at DESC, dm.id DESC))[1] AS last_message_text,
+        (ARRAY_AGG(${directionSql('dm')} ORDER BY dm.occurred_at DESC, dm.id DESC))[1] AS last_message_direction,
+        (ARRAY_AGG(dm.deal_id ORDER BY dm.occurred_at DESC, dm.id DESC)
+           FILTER (WHERE dm.deal_id IS NOT NULL))[1] AS last_deal_id
+      FROM deal_messages dm
+      WHERE dm.organization_id = $1
+        AND dm.rica_session_id IS NOT NULL
+        AND dm.rica_session_id <> ''
+      GROUP BY dm.rica_session_id
+    ),
+    resolved AS (
+      SELECT c.phone, c.last_message_at, c.message_count,
+             c.last_message_text, c.last_message_direction,
+             ct.id   AS contact_id,
+             ct.name AS contact_name,
+             dl.id     AS deal_id,
+             dl.title  AS deal_title,
+             dl.status AS deal_status,
+             dl.owner_id,
+             dl.pipeline_id
+      FROM conv c
+      LEFT JOIN LATERAL (
+        SELECT x.id, x.name
+        FROM contacts x
+        WHERE x.organization_id = $1
+          AND REGEXP_REPLACE(COALESCE(x.phone, ''), '\\D', '', 'g') = c.phone
+        ORDER BY x.created_at ASC
+        LIMIT 1
+      ) ct ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT d.id, d.title, d.status, d.owner_id, d.pipeline_id
+        FROM deals d
+        WHERE d.organization_id = $1
+          AND (
+                d.id = c.last_deal_id
+             OR (ct.id IS NOT NULL AND d.contact_id = ct.id)
+             OR REGEXP_REPLACE(COALESCE(d.contact_phone, ''), '\\D', '', 'g') = c.phone
+              )
+        ORDER BY d.created_at DESC
+        LIMIT 1
+      ) dl ON TRUE
+    )`;
+
+router.get('/conversations', async (req, res, next) => {
+  try {
+    const orgId = getOrgId(req);
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const params = [orgId];
+    let idx = 2;
+    let whereExtra = '';
+
+    if (search) {
+      // Busca por nome do contato OU por telefone. O telefone e comparado
+      // apenas pelos digitos, porque rica_session_id guarda so digitos.
+      const digits = search.replace(/\D/g, '');
+      whereExtra += ` AND (r.contact_name ILIKE $${idx}`;
+      params.push(`%${search}%`); idx++;
+      if (digits) {
+        whereExtra += ` OR r.phone LIKE $${idx}`;
+        params.push(`%${digits}%`); idx++;
+      }
+      whereExtra += ')';
+    }
+
+    // Escopo por dono: member so ve conversas cujo deal e dele.
+    // Conversa sem deal associado continua visivel para todos.
+    if (isOwnerScoped(req)) {
+      whereExtra += ` AND (r.deal_id IS NULL OR r.owner_id = $${idx})`;
+      params.push(req.user.id); idx++;
+    }
+
+    const limitIdx = idx++;
+    const offsetIdx = idx++;
+    const pageParams = [...params, limit, offset];
 
     const result = await query(
-      `SELECT id, deal_id, role, channel, content as text, media_url, media_type,
-              rica_session_id as phone, metadata, occurred_at as sent_at, created_at,
-              metadata->>'direction' as direction,
-              metadata->>'sender' as sender
-       FROM deal_messages
-       WHERE organization_id = $1
-         AND rica_session_id = $2
-       ORDER BY occurred_at ASC
-       LIMIT $3`,
-      [orgId, cleanPhone, limit]
+      `${CONVERSATIONS_CTE}
+       SELECT r.phone,
+              r.contact_id,
+              r.contact_name,
+              r.deal_id,
+              r.deal_title,
+              p.name AS pipeline_name,
+              r.owner_id,
+              u.name AS owner_name,
+              r.deal_status,
+              r.last_message_at,
+              r.last_message_text,
+              r.last_message_direction,
+              r.message_count,
+              COUNT(*) OVER ()::int AS total_count
+       FROM resolved r
+       LEFT JOIN pipelines p ON p.id = r.pipeline_id
+       LEFT JOIN users u ON u.id = r.owner_id
+       WHERE TRUE${whereExtra}
+       ORDER BY r.last_message_at DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      pageParams
     );
-    res.json({ messages: result.rows, total: result.rows.length });
+
+    const conversations = result.rows.map(({ total_count, ...row }) => row);
+
+    let total = result.rows.length > 0 ? result.rows[0].total_count : 0;
+    // Pagina vazia com offset > 0: o COUNT(*) OVER () nao retorna linha nenhuma,
+    // entao o total real precisa de uma contagem separada (caso raro).
+    if (conversations.length === 0 && offset > 0) {
+      const countResult = await query(
+        `${CONVERSATIONS_CTE}
+         SELECT COUNT(*)::int AS total
+         FROM resolved r
+         WHERE TRUE${whereExtra}`,
+        params
+      );
+      total = countResult.rows[0]?.total || 0;
+    }
+
+    res.json({ conversations, total });
   } catch (error) {
     next(error);
   }

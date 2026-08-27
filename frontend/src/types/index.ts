@@ -731,3 +731,38 @@ export interface TimeEntry {
   user_name?: string
   task_title?: string
 }
+
+// ── Conversas (Rica x leads) ────────────────────────────────
+export interface Conversation {
+  phone: string
+  contact_id: string | null
+  contact_name: string | null
+  deal_id: string | null
+  deal_title: string | null
+  pipeline_name: string | null
+  owner_id: string | null
+  owner_name: string | null
+  deal_status: string | null
+  last_message_at: string | null
+  last_message_text: string | null
+  last_message_direction: string | null
+  message_count: number
+}
+
+export type ConversationSender = 'cliente' | 'rica_ai' | 'system_followup'
+
+export interface ConversationMessage {
+  id: string
+  deal_id: string | null
+  role: DealMessage['role']
+  channel: string | null
+  text: string | null
+  media_url: string | null
+  media_type: string | null
+  phone: string | null
+  metadata: Record<string, unknown> | null
+  sent_at: string | null
+  created_at: string
+  direction: string | null
+  sender: ConversationSender | string | null
+}
