@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
   Bot,
@@ -22,6 +22,8 @@ import type { Conversation, ConversationMessage, ConversationSender } from '@/ty
 const LIST_REFETCH_MS = 10_000
 const THREAD_REFETCH_MS = 8_000
 const THREAD_LIMIT = 200
+/** Teto aceito por `GET /api/crm/conversations`. Paginas maiores sao cortadas la. */
+const LIST_PAGE_SIZE = 200
 
 /** Pausa o polling enquanto a aba estiver oculta (protege o Disk IO do banco). */
 function usePageVisible(): boolean {
@@ -334,14 +336,56 @@ export default function Conversas() {
   const debouncedSearch = useDebounced(search, 300)
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null)
 
-  const { data, isLoading, isError, error } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['crm-conversations', debouncedSearch],
-    queryFn: () => crmApi.conversations.list({ search: debouncedSearch || undefined, limit: 100 }),
-    refetchInterval: visible ? LIST_REFETCH_MS : false,
+    queryFn: ({ pageParam }) =>
+      crmApi.conversations.list({
+        search: debouncedSearch || undefined,
+        limit: LIST_PAGE_SIZE,
+        offset: pageParam,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const carregadas = allPages.reduce((n, p) => n + p.conversations.length, 0)
+      return carregadas < lastPage.total ? carregadas : undefined
+    },
+    // O polling so roda enquanto houver UMA pagina. Depois de expandir a lista,
+    // cada refetch refaria TODAS as paginas carregadas -- e o CTE de conversas e
+    // caro. Reordenar a lista debaixo de quem esta rolando tambem seria ruim de
+    // usar. Quem expandiu esta olhando historico, nao esperando mensagem nova.
+    refetchInterval: query => {
+      if (!visible) return false
+      return (query.state.data?.pages.length ?? 1) === 1 ? LIST_REFETCH_MS : false
+    },
     refetchIntervalInBackground: false,
   })
 
-  const conversations = data?.conversations ?? []
+  const total = data?.pages[0]?.total ?? 0
+
+  // Paginacao por offset numa lista viva: se uma conversa recebe mensagem entre
+  // duas paginas, ela sobe no ORDER BY e pode reaparecer. Sem o dedupe isso vira
+  // key repetida no React.
+  const conversations = useMemo(() => {
+    const vistos = new Set<string>()
+    const lista: Conversation[] = []
+    for (const page of data?.pages ?? []) {
+      for (const c of page.conversations) {
+        if (vistos.has(c.phone)) continue
+        vistos.add(c.phone)
+        lista.push(c)
+      }
+    }
+    return lista
+  }, [data?.pages])
+
   const selected = conversations.find(c => c.phone === selectedPhone) ?? null
 
   return (
@@ -349,8 +393,12 @@ export default function Conversas() {
       <div className="flex items-center gap-2">
         <MessageSquare className="h-5 w-5 text-indigo-500" />
         <h1 className="text-2xl font-bold">Conversas</h1>
-        {data?.total !== undefined && (
-          <span className="text-sm text-muted-foreground">{data.total} conversa(s)</span>
+        {data && (
+          <span className="text-sm text-muted-foreground">
+            {conversations.length < total
+              ? `${conversations.length} de ${total} conversa(s)`
+              : `${total} conversa(s)`}
+          </span>
         )}
       </div>
 
@@ -382,14 +430,31 @@ export default function Conversas() {
               ) : conversations.length === 0 ? (
                 <EmptyState message={debouncedSearch ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa ainda'} />
               ) : (
-                conversations.map(c => (
-                  <ConversationRow
-                    key={c.phone}
-                    conversation={c}
-                    active={c.phone === selectedPhone}
-                    onSelect={() => setSelectedPhone(c.phone)}
-                  />
-                ))
+                <>
+                  {conversations.map(c => (
+                    <ConversationRow
+                      key={c.phone}
+                      conversation={c}
+                      active={c.phone === selectedPhone}
+                      onSelect={() => setSelectedPhone(c.phone)}
+                    />
+                  ))}
+                  {hasNextPage && (
+                    <div className="p-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => fetchNextPage()}
+                        disabled={isFetchingNextPage}
+                      >
+                        {isFetchingNextPage
+                          ? 'Carregando...'
+                          : `Carregar mais (${total - conversations.length} restantes)`}
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
