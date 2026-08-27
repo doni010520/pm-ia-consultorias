@@ -26,6 +26,72 @@ const READ_ONLY_TOOLS = [
   'buscar_conhecimento',
 ];
 
+/**
+ * Termos que, se aparecerem na mensagem, obrigam a consultar a base ANTES do
+ * modelo decidir qualquer coisa.
+ */
+const TERMOS_DE_CONHECIMENTO = [
+  'jornada', 'jdl', 'lucratividade', 'gps padaria', 'gps resultado', 'gps',
+  'eneagrama', 'alexy', 'cmv', 'reforma tribut', 'margem', 'ticket m',
+  'propan', 'curso', 'masterclass',
+];
+
+/**
+ * Busca na base e devolve o contexto pronto para injetar no system prompt.
+ *
+ * POR QUE ISTO EXISTE, em vez de confiar na tool: o modelo obedecia em
+ * "quanto custa a jornada online?" e "o que é a JDL?", mas ignorava a ferramenta
+ * em pedidos ABERTOS — "quero saber sobre a jornada online", "me fala da
+ * jornada". E é exatamente assim que as pessoas escrevem: foi a pergunta que
+ * gerou a queixa de que "a Rica não sabe da jornada". Reforçar a instrução no
+ * prompt não resolveu de forma confiável (3 tentativas, 3 falhas).
+ *
+ * Então o gatilho virou código: citou o termo, o contexto entra. A tool continua
+ * existindo para o resto — o determinismo cobre o caso que dói.
+ */
+async function buscarContextoDoConhecimento(mensagem) {
+  const texto = String(mensagem || '').toLowerCase();
+  if (!TERMOS_DE_CONHECIMENTO.some((t) => texto.includes(t))) return '';
+
+  const base = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const chave = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const openaiKey = process.env.OPENAI_API_KEY || '';
+  if (!base || !chave || !openaiKey) return '';
+
+  try {
+    const er = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: mensagem }),
+    });
+    if (!er.ok) return '';
+    const emb = (await er.json()).data[0].embedding;
+
+    const rr = await fetch(`${base}/rest/v1/rpc/match_documents`, {
+      method: 'POST',
+      headers: { apikey: chave, Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query_embedding: emb, match_count: 5, filter: {} }),
+    });
+    if (!rr.ok) return '';
+    const docs = await rr.json();
+    const bons = (Array.isArray(docs) ? docs : []).filter((d) => (d.similarity ?? 0) >= 0.45);
+    if (!bons.length) return '';
+
+    const trechos = bons
+      .map((d) => `[${d.metadata?.arquivo || 'documento interno'}]\n${d.content}`)
+      .join('\n\n---\n\n');
+
+    return `\n\n═══ BASE DE CONHECIMENTO (trechos relevantes para esta pergunta) ═══
+Use ESTES dados para responder. São a fonte oficial — não complete com memória
+nem invente número que não esteja aqui.
+
+${trechos}
+═══ fim dos trechos ═══\n`;
+  } catch {
+    return '';
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function ensureSession(sessionId, user) {
@@ -105,7 +171,10 @@ router.post('/', async (req, res, next) => {
     const allMessages = [...history, lastUserMsg].filter(Boolean);
 
     // Build system prompt with org context
-    const systemPrompt = await buildSystemPrompt(user);
+    const contextoConhecimento = await buscarContextoDoConhecimento(
+      typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : ''
+    );
+    const systemPrompt = (await buildSystemPrompt(user)) + contextoConhecimento;
 
     // Build tools scoped to this user/org
     const tools = buildRicaTools(user);
@@ -257,7 +326,8 @@ router.post('/ask', async (req, res, next) => {
     // Prompt DEDICADO ao WhatsApp. Não usar buildSystemPrompt (prompt do app):
     // ele exige confirmação para ações e lista funis/etapas, o que fazia a Rica
     // perguntar "crio no funil X? defino responsável?" em loop em vez de agir.
-    const systemPrompt = await buildCopilotPrompt(user);
+    const contextoConhecimento = await buscarContextoDoConhecimento(message);
+    const systemPrompt = (await buildCopilotPrompt(user)) + contextoConhecimento;
 
     const result = await generateText({
       model: openai(MODEL),
