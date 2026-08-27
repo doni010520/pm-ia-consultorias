@@ -605,6 +605,23 @@ export const crmApi = {
           offset: filters?.offset ? String(filters.offset) : undefined,
         })}`
       ),
+    /** Responde o lead pelo WhatsApp. Enviar assume a conversa (a Rica silencia). */
+    responder: (phone: string, texto: string) =>
+      request<{ enviado: boolean; iaDesligada: boolean }>(
+        `/api/crm/conversations/${encodeURIComponent(phone)}/responder${withOrg()}`,
+        { method: 'POST', body: JSON.stringify({ texto }) }
+      ),
+    /** Quem atende este telefone agora: a Rica ou uma pessoa. */
+    quemAtende: (phone: string) =>
+      request<{ ia_ativa: boolean; registro: boolean }>(
+        `/api/crm/conversations/${encodeURIComponent(phone)}/ia${withOrg()}`
+      ),
+    /** true = devolve pra Rica; false = assume a conversa. */
+    definirIa: (phone: string, ativar: boolean) =>
+      request<{ ia_ativa: boolean; registro: boolean }>(
+        `/api/crm/conversations/${encodeURIComponent(phone)}/ia${withOrg()}`,
+        { method: 'POST', body: JSON.stringify({ ativar }) }
+      ),
     messages: (phone: string, params?: { limit?: number }) =>
       request<{ messages: import('@/types').ConversationMessage[]; total: number }>(
         `/api/crm/contacts/by-phone/${encodeURIComponent(phone)}/messages${withOrg({

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   Bot,
@@ -11,8 +11,11 @@ import {
   MapPin,
   Phone,
   Search,
+  Send,
+  Sparkles,
   Tag,
   User,
+  UserCheck,
 } from 'lucide-react'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { Card } from '@/components/ui/card'
@@ -20,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { LoadingSpinner, EmptyState, ErrorState } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
 import { cn } from '@/lib/utils'
 import type { Conversation, ConversationMessage, ConversationSender } from '@/types'
 
@@ -188,10 +192,20 @@ function isFromLead(msg: ConversationMessage): boolean {
   return resolveDirection(msg) === 'in'
 }
 
+/** `sender` que o bot grava quando a mensagem foi escrita por uma pessoa. */
+const SENDER_ATENDENTE = 'atendente'
+
+function ehDoAtendente(msg: ConversationMessage): boolean {
+  return resolveSender(msg) === SENDER_ATENDENTE
+}
+
 function senderLabel(msg: ConversationMessage, leadName: string): string {
   const sender = resolveSender(msg)
   if (sender === 'cliente') return leadName
   if (sender === 'system_followup') return 'Rica · follow-up automático'
+  // Escrita por uma pessoa da equipe pela tela. Precisa se distinguir da Rica:
+  // saber se quem falou foi a IA ou um humano muda como a equipe lê a conversa.
+  if (sender === SENDER_ATENDENTE) return 'Equipe · resposta humana'
   return 'Rica'
 }
 
@@ -303,6 +317,7 @@ function ConversationRow({ conversation, active, onSelect }: {
 function MessageBubble({ message, leadName }: { message: ConversationMessage; leadName: string }) {
   const fromLead = isFromLead(message)
   const isFollowup = resolveSender(message) === 'system_followup'
+  const doAtendente = ehDoAtendente(message)
   const aproximado = isApproximateTime(message)
   return (
     <div className={cn('flex', fromLead ? 'justify-start' : 'justify-end')}>
@@ -313,6 +328,10 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
             ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'
             : isFollowup
             ? 'bg-violet-100 border border-violet-200 text-violet-900 rounded-tr-sm'
+            // Resposta humana em cor própria: bater o olho e saber se foi a IA
+            // ou uma pessoa é a informação que a equipe mais usa nesta tela.
+            : doAtendente
+            ? 'bg-emerald-600 text-white rounded-tr-sm'
             : 'bg-indigo-600 text-white rounded-tr-sm'
         )}
       >
@@ -338,6 +357,113 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
           {formatTime(message.sent_at || message.created_at)}
         </p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Barra de resposta do atendente.
+ *
+ * Enviar É assumir a conversa: o backend silencia a Rica neste contato. Quem
+ * responde precisa ver isso ANTES de escrever, não descobrir depois — por isso o
+ * estado de quem atende fica ao lado do campo, e não escondido num menu.
+ *
+ * Só admin responde (decisão do dono). Para os demais, a barra explica o motivo
+ * em vez de simplesmente não existir.
+ */
+function BarraDeResposta({ conversation }: { conversation: Conversation }) {
+  const [texto, setTexto] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const usuario = useAuthStore(e => e.user)
+  const qc = useQueryClient()
+  const ehAdmin = usuario?.role === 'admin'
+
+  const atendimento = useQuery({
+    queryKey: ['crm-conversa-ia', conversation.phone],
+    queryFn: () => crmApi.conversations.quemAtende(conversation.phone),
+    staleTime: 15_000,
+    retry: false,
+  })
+
+  const recarregar = () => {
+    qc.invalidateQueries({ queryKey: ['crm-conversa-ia', conversation.phone] })
+    qc.invalidateQueries({ queryKey: ['crm-conversation-messages', conversation.phone] })
+    qc.invalidateQueries({ queryKey: ['crm-conversations'] })
+  }
+
+  const enviar = useMutation({
+    mutationFn: (t: string) => crmApi.conversations.responder(conversation.phone, t),
+    onSuccess: () => { setTexto(''); setErro(null); recarregar() },
+    onError: (e: unknown) => setErro(e instanceof Error ? e.message : 'Falha ao enviar'),
+  })
+
+  const alternarIa = useMutation({
+    mutationFn: (ativar: boolean) => crmApi.conversations.definirIa(conversation.phone, ativar),
+    onSuccess: () => { setErro(null); recarregar() },
+    onError: (e: unknown) => setErro(e instanceof Error ? e.message : 'Falha ao alterar o atendimento'),
+  })
+
+  const iaAtiva = atendimento.data?.ia_ativa ?? true
+  const ocupado = enviar.isPending || alternarIa.isPending
+
+  if (!ehAdmin) {
+    return (
+      <div className="border-t bg-slate-50 px-4 py-2.5">
+        <p className="text-xs text-slate-500">
+          Só administradores respondem por aqui. Para falar com este lead, use o WhatsApp.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border-t bg-white">
+      <div className="flex items-center gap-2 px-4 pt-2.5">
+        {iaAtiva ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+            <Sparkles className="h-3 w-3" />
+            Rica está atendendo
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+            <UserCheck className="h-3 w-3" />
+            Atendimento assumido pela equipe
+          </span>
+        )}
+
+        {iaAtiva ? (
+          <span className="text-[11px] text-slate-400">
+            ao enviar, a Rica para de responder este contato
+          </span>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-[11px] px-2"
+            disabled={ocupado}
+            onClick={() => alternarIa.mutate(true)}
+          >
+            Devolver pra Rica
+          </Button>
+        )}
+      </div>
+
+      {erro && <p className="px-4 pt-1.5 text-[11px] text-rose-600">{erro}</p>}
+
+      <form
+        className="flex gap-2 px-4 py-2.5"
+        onSubmit={e => { e.preventDefault(); const t = texto.trim(); if (t && !ocupado) enviar.mutate(t) }}
+      >
+        <Input
+          placeholder={enviar.isPending ? 'Enviando…' : 'Responder pelo WhatsApp…'}
+          value={texto}
+          onChange={e => setTexto(e.target.value)}
+          disabled={ocupado}
+        />
+        <Button type="submit" disabled={ocupado || !texto.trim()}>
+          <Send className="h-4 w-4" />
+        </Button>
+      </form>
     </div>
   )
 }
@@ -440,6 +566,8 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
           })
         )}
       </div>
+
+      <BarraDeResposta conversation={conversation} />
     </div>
   )
 }

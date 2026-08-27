@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireRole } from '../middleware/auth.js';
 import multer from 'multer';
 import { query } from '../services/database.js';
 import * as leadJourney from '../services/leadJourney.js';
@@ -51,7 +52,10 @@ function isOwnerScoped(req) {
 // cliente, rica, rica_ai, agent, system, system_followup, executive,
 // system_catchup.
 const ROLES_IN = ['client', 'lead', 'cliente'];
-const ROLES_OUT = ['rica', 'rica_ai', 'agent', 'system', 'system_followup', 'executive', 'system_catchup'];
+// 'atendente' = resposta escrita por uma pessoa da equipe pela tela de Conversas.
+// O metadata da mensagem já traz direction='out', mas manter aqui é a rede de
+// segurança: sem isso, uma mensagem sem metadata apareceria do lado do cliente.
+const ROLES_OUT = ['rica', 'rica_ai', 'agent', 'system', 'system_followup', 'executive', 'system_catchup', 'atendente'];
 
 function sqlList(values) {
   return values.map((v) => `'${v}'`).join(', ');
@@ -3158,6 +3162,123 @@ router.get('/manager/overview', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// ============================================
+// ATENDIMENTO HUMANO — responder o lead pela tela
+// ============================================
+
+/**
+ * Fala com o rica-bot. Mesma config do simulador (RICA_BOT_URL /
+ * RICA_BOT_ADMIN_TOKEN) — o token nunca sai do backend.
+ */
+async function chamarBot(caminho, { metodo = 'POST', corpo, timeoutMs = 30000 } = {}) {
+  const base = (process.env.RICA_BOT_URL || '').replace(/\/+$/, '');
+  const token = process.env.RICA_BOT_ADMIN_TOKEN || '';
+  if (!base) {
+    const e = new Error('Falta RICA_BOT_URL nas variáveis deste backend (EasyPanel).');
+    e.httpStatus = 503; e.code = 'bot_nao_configurado';
+    throw e;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let r;
+  try {
+    r = await fetch(base + caminho, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      ...(corpo ? { body: JSON.stringify(corpo) } : {}),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    const e = new Error(err && err.name === 'AbortError'
+      ? 'O rica-bot demorou demais para responder.'
+      : 'Não foi possível falar com o rica-bot. Confira RICA_BOT_URL.');
+    e.httpStatus = 504; e.code = 'bot_inacessivel';
+    throw e;
+  }
+  clearTimeout(timer);
+  const txt = await r.text();
+  let corpoResp;
+  try { corpoResp = JSON.parse(txt); } catch { corpoResp = { raw: txt.slice(0, 300) }; }
+  if (r.status === 401) {
+    const e = new Error('O rica-bot recusou o token. Confira RICA_BOT_ADMIN_TOKEN.');
+    e.httpStatus = 502; e.code = 'token_invalido';
+    throw e;
+  }
+  if (!r.ok) {
+    const e = new Error((corpoResp && corpoResp.error) || 'O rica-bot recusou a operação.');
+    e.httpStatus = r.status; e.code = 'bot_recusou';
+    throw e;
+  }
+  return corpoResp;
+}
+
+function erroDoBot(res, err, next) {
+  if (err && err.httpStatus) {
+    return res.status(err.httpStatus).json({ error: { code: err.code, message: err.message } });
+  }
+  return next(err);
+}
+
+/**
+ * POST /api/crm/conversations/:phone/responder
+ *
+ * SÓ ADMIN, por decisão do dono: executivos veem as conversas mas não respondem
+ * por aqui. Enviar É assumir — a Rica silencia neste contato até alguém devolver.
+ */
+router.post('/conversations/:phone/responder', requireRole('admin'), async (req, res, next) => {
+  try {
+    const telefone = String(req.params.phone || '').replace(/\D/g, '');
+    const texto = String((req.body && req.body.texto) || '').trim();
+    if (!telefone) return res.status(400).json({ error: { message: 'Telefone inválido.' } });
+    if (!texto) return res.status(400).json({ error: { message: 'Escreva uma mensagem.' } });
+    if (texto.length > 4000) {
+      return res.status(400).json({ error: { message: 'Mensagem longa demais (máx. 4000 caracteres).' } });
+    }
+
+    // O deal serve só para o histórico ficar amarrado ao negócio certo.
+    const orgId = getOrgId(req);
+    const d = await query(
+      `SELECT id FROM deals
+        WHERE organization_id = $1
+          AND REGEXP_REPLACE(COALESCE(contact_phone, ''), '\\D', '', 'g') = $2
+        ORDER BY created_at DESC LIMIT 1`,
+      [orgId, telefone]
+    );
+
+    const r = await chamarBot('/admin/responder', {
+      corpo: {
+        telefone,
+        texto,
+        atendente: (req.user && req.user.name) || undefined,
+        dealId: d.rows[0] ? d.rows[0].id : undefined,
+      },
+    });
+    return res.json(r);
+  } catch (err) { return erroDoBot(res, err, next); }
+});
+
+/** GET — quem atende este telefone agora: a Rica ou uma pessoa. */
+router.get('/conversations/:phone/ia', async (req, res, next) => {
+  try {
+    const telefone = String(req.params.phone || '').replace(/\D/g, '');
+    if (!telefone) return res.status(400).json({ error: { message: 'Telefone inválido.' } });
+    const r = await chamarBot(`/admin/ia?telefone=${telefone}`, { metodo: 'GET' });
+    return res.json(r);
+  } catch (err) { return erroDoBot(res, err, next); }
+});
+
+/** POST — assume a conversa ou devolve para a Rica. */
+router.post('/conversations/:phone/ia', requireRole('admin'), async (req, res, next) => {
+  try {
+    const telefone = String(req.params.phone || '').replace(/\D/g, '');
+    if (!telefone) return res.status(400).json({ error: { message: 'Telefone inválido.' } });
+    const ativar = !!(req.body && req.body.ativar);
+    const r = await chamarBot('/admin/ia', { corpo: { telefone, ativar } });
+    return res.json(r);
+  } catch (err) { return erroDoBot(res, err, next); }
 });
 
 // ============================================
