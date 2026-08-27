@@ -10,10 +10,14 @@ import {
   Mail,
   MapPin,
   Phone,
+  Mic,
+  Paperclip,
   Search,
   Send,
   Sparkles,
+  Square,
   Tag,
+  Trash2,
   User,
   UserCheck,
 } from 'lucide-react'
@@ -314,6 +318,52 @@ function ConversationRow({ conversation, active, onSelect }: {
   )
 }
 
+/**
+ * Renderiza o anexo conforme o tipo, em vez do link cru que aparecia antes.
+ *
+ * Imagem e áudio precisam ser vistos/ouvidos NA conversa: abrir outra aba para
+ * cada foto torna a leitura do histórico inviável. Documento continua como link,
+ * porque não há o que mostrar dele aqui.
+ */
+function Anexo({ url, tipo }: { url: string; tipo: string | null }) {
+  const t = (tipo ?? '').toLowerCase()
+  const ehImagem = t.includes('image') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(url)
+  const ehAudio = t.includes('audio') || t === 'ptt' || /\.(ogg|mp3|m4a|webm|opus|wav)$/i.test(url)
+  const ehVideo = t.includes('video') || /\.(mp4|mov|webm|3gp)$/i.test(url)
+
+  if (ehImagem) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block mt-1">
+        <img
+          src={url}
+          alt="Imagem enviada na conversa"
+          className="max-h-64 w-auto rounded-lg border border-black/10"
+          loading="lazy"
+        />
+      </a>
+    )
+  }
+  if (ehAudio) {
+    // `controls` nativo: dá play, barra e velocidade de graça, e funciona no
+    // celular. Um player próprio aqui seria enfeite com custo de manutenção.
+    return <audio src={url} controls preload="none" className="mt-1 w-56 max-w-full" />
+  }
+  if (ehVideo) {
+    return <video src={url} controls preload="metadata" className="mt-1 max-h-64 rounded-lg" />
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-1 inline-flex items-center gap-1.5 text-xs underline break-all"
+    >
+      <Paperclip className="h-3 w-3 shrink-0" />
+      {tipo || 'anexo'}
+    </a>
+  )
+}
+
 function MessageBubble({ message, leadName }: { message: ConversationMessage; leadName: string }) {
   const fromLead = isFromLead(message)
   const isFollowup = resolveSender(message) === 'system_followup'
@@ -339,16 +389,7 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
           {senderLabel(message, leadName)}
         </p>
         {message.text && <p className="whitespace-pre-wrap break-words">{message.text}</p>}
-        {message.media_url && (
-          <a
-            href={message.media_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs underline break-all"
-          >
-            {message.media_type || 'anexo'}
-          </a>
-        )}
+        {message.media_url && <Anexo url={message.media_url} tipo={message.media_type} />}
         <p
           className={cn('text-[10px] mt-1', fromLead || isFollowup ? 'text-slate-400' : 'opacity-60')}
           title={aproximado ? 'Horario estimado: a origem desta mensagem nao guardou data' : undefined}
@@ -359,6 +400,92 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
       </div>
     </div>
   )
+}
+
+/**
+ * Gravação de voz pelo microfone.
+ *
+ * O navegador só grava em webm/ogg. Isso serve para a uazapi, que aceita o
+ * arquivo como está — a conversão para MP3 que o inbox do MVF faz existe por
+ * causa da Cloud API da Meta, que recusa webm. Nosso canal não é Meta.
+ */
+function useGravador() {
+  const [gravando, setGravando] = useState(false)
+  const [segundos, setSegundos] = useState(0)
+  const recRef = useRef<MediaRecorder | null>(null)
+  const pedacosRef = useRef<BlobPart[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+  const timerRef = useRef<number | null>(null)
+  const resolveRef = useRef<((b: Blob | null) => void) | null>(null)
+
+  const encerrarTudo = () => {
+    if (timerRef.current) { window.clearInterval(timerRef.current); timerRef.current = null }
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setGravando(false)
+    setSegundos(0)
+  }
+
+  // Soltar o microfone ao sair da tela: sem isso o navegador mantém a luzinha
+  // de gravação acesa mesmo depois que o componente sumiu.
+  useEffect(() => () => encerrarTudo(), [])
+
+  async function iniciar(): Promise<boolean> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      const preferidos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+      const mimeType = preferidos.find(m => MediaRecorder.isTypeSupported?.(m))
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 64000 } : undefined)
+      pedacosRef.current = []
+      rec.ondataavailable = e => { if (e.data.size > 0) pedacosRef.current.push(e.data) }
+      rec.onstop = () => {
+        const blob = new Blob(pedacosRef.current, { type: rec.mimeType || 'audio/webm' })
+        encerrarTudo()
+        resolveRef.current?.(blob.size > 0 ? blob : null)
+        resolveRef.current = null
+      }
+      rec.start()
+      recRef.current = rec
+      setGravando(true)
+      setSegundos(0)
+      timerRef.current = window.setInterval(() => setSegundos(x => x + 1), 1000)
+      return true
+    } catch {
+      encerrarTudo()
+      return false
+    }
+  }
+
+  /** Para e devolve o áudio. `requestData` força o que ainda está no buffer. */
+  function parar(): Promise<Blob | null> {
+    return new Promise(resolve => {
+      const rec = recRef.current
+      if (!rec || rec.state === 'inactive') { encerrarTudo(); resolve(null); return }
+      resolveRef.current = resolve
+      try { rec.requestData() } catch { /* alguns navegadores não suportam */ }
+      rec.stop()
+    })
+  }
+
+  function cancelar() {
+    const rec = recRef.current
+    resolveRef.current = null
+    if (rec && rec.state !== 'inactive') {
+      rec.onstop = () => encerrarTudo()
+      rec.stop()
+    } else {
+      encerrarTudo()
+    }
+  }
+
+  return { gravando, segundos, iniciar, parar, cancelar }
+}
+
+function mmss(total: number): string {
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 /**
@@ -377,6 +504,8 @@ function BarraDeResposta({ conversation }: { conversation: Conversation }) {
   const usuario = useAuthStore(e => e.user)
   const qc = useQueryClient()
   const ehAdmin = usuario?.role === 'admin'
+  const gravador = useGravador()
+  const arquivoRef = useRef<HTMLInputElement>(null)
 
   const atendimento = useQuery({
     queryKey: ['crm-conversa-ia', conversation.phone],
@@ -397,6 +526,19 @@ function BarraDeResposta({ conversation }: { conversation: Conversation }) {
     onError: (e: unknown) => setErro(e instanceof Error ? e.message : 'Falha ao enviar'),
   })
 
+  const enviarArquivo = useMutation({
+    mutationFn: ({ arquivo, nome, tipo }: { arquivo: Blob; nome: string; tipo?: 'ptt' }) =>
+      crmApi.conversations.enviarMidia(conversation.phone, arquivo, {
+        nome,
+        // A legenda vai junto com o arquivo, como no WhatsApp: o que estava
+        // escrito no campo não se perde ao anexar.
+        ...(texto.trim() ? { legenda: texto.trim() } : {}),
+        ...(tipo ? { tipo } : {}),
+      }),
+    onSuccess: () => { setTexto(''); setErro(null); recarregar() },
+    onError: (e: unknown) => setErro(e instanceof Error ? e.message : 'Falha ao enviar o arquivo'),
+  })
+
   const alternarIa = useMutation({
     mutationFn: (ativar: boolean) => crmApi.conversations.definirIa(conversation.phone, ativar),
     onSuccess: () => { setErro(null); recarregar() },
@@ -404,7 +546,22 @@ function BarraDeResposta({ conversation }: { conversation: Conversation }) {
   })
 
   const iaAtiva = atendimento.data?.ia_ativa ?? true
-  const ocupado = enviar.isPending || alternarIa.isPending
+  const ocupado = enviar.isPending || alternarIa.isPending || enviarArquivo.isPending
+
+  async function pararEEnviar() {
+    const audio = await gravador.parar()
+    if (!audio) { setErro('A gravação não capturou nada. Tente de novo.'); return }
+    // ptt = "push to talk": a bolha de voz do WhatsApp, não anexo de áudio.
+    enviarArquivo.mutate({ arquivo: audio, nome: 'audio.webm', tipo: 'ptt' })
+  }
+
+  function aoEscolherArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = '' // permite reenviar o mesmo arquivo depois
+    if (!f) return
+    if (f.size > 48 * 1024 * 1024) { setErro('Arquivo grande demais (máx. 48MB).'); return }
+    enviarArquivo.mutate({ arquivo: f, nome: f.name })
+  }
 
   if (!ehAdmin) {
     return (
@@ -450,20 +607,82 @@ function BarraDeResposta({ conversation }: { conversation: Conversation }) {
 
       {erro && <p className="px-4 pt-1.5 text-[11px] text-rose-600">{erro}</p>}
 
-      <form
-        className="flex gap-2 px-4 py-2.5"
-        onSubmit={e => { e.preventDefault(); const t = texto.trim(); if (t && !ocupado) enviar.mutate(t) }}
-      >
-        <Input
-          placeholder={enviar.isPending ? 'Enviando…' : 'Responder pelo WhatsApp…'}
-          value={texto}
-          onChange={e => setTexto(e.target.value)}
-          disabled={ocupado}
-        />
-        <Button type="submit" disabled={ocupado || !texto.trim()}>
-          <Send className="h-4 w-4" />
-        </Button>
-      </form>
+      {gravador.gravando ? (
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <span className="flex items-center gap-2 text-sm text-rose-600">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+            Gravando {mmss(gravador.segundos)}
+          </span>
+          <span className="text-xs text-slate-400">solte para enviar como mensagem de voz</span>
+          <div className="ml-auto flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title="Descartar"
+              onClick={() => { gravador.cancelar(); setErro(null) }}
+            >
+              <Trash2 className="h-4 w-4 text-slate-400" />
+            </Button>
+            <Button type="button" onClick={pararEEnviar} disabled={enviarArquivo.isPending}>
+              <Square className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="flex items-center gap-2 px-4 py-2.5"
+          onSubmit={e => { e.preventDefault(); const t = texto.trim(); if (t && !ocupado) enviar.mutate(t) }}
+        >
+          <input
+            ref={arquivoRef}
+            type="file"
+            className="hidden"
+            onChange={aoEscolherArquivo}
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title="Anexar arquivo"
+            disabled={ocupado}
+            onClick={() => arquivoRef.current?.click()}
+          >
+            <Paperclip className="h-4 w-4 text-slate-500" />
+          </Button>
+
+          <Input
+            placeholder={
+              enviarArquivo.isPending ? 'Enviando arquivo…'
+                : enviar.isPending ? 'Enviando…'
+                : 'Responder pelo WhatsApp…'
+            }
+            value={texto}
+            onChange={e => setTexto(e.target.value)}
+            disabled={ocupado}
+          />
+
+          {texto.trim() ? (
+            <Button type="submit" disabled={ocupado}>
+              <Send className="h-4 w-4" />
+            </Button>
+          ) : (
+            // Sem texto, o botão vira microfone — como no WhatsApp.
+            <Button
+              type="button"
+              title="Gravar mensagem de voz"
+              disabled={ocupado}
+              onClick={async () => {
+                const ok = await gravador.iniciar()
+                if (!ok) setErro('Não consegui acessar o microfone. Verifique a permissão do navegador.')
+              }}
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
+          )}
+        </form>
+      )}
     </div>
   )
 }

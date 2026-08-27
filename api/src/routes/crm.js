@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { requireRole } from '../middleware/auth.js';
 import multer from 'multer';
 import { query } from '../services/database.js';
@@ -3259,6 +3259,133 @@ router.post('/conversations/:phone/responder', requireRole('admin'), async (req,
     return res.json(r);
   } catch (err) { return erroDoBot(res, err, next); }
 });
+
+/** Extensão a partir do mime, para o arquivo no bucket não ficar sem sufixo. */
+function extDoMime(mime, nomeOriginal) {
+  const doNome = String(nomeOriginal || '').split('.').pop();
+  if (doNome && doNome.length <= 5 && /^[a-z0-9]+$/i.test(doNome)) return doNome.toLowerCase();
+  const m = String(mime || '').split('/')[1] || 'bin';
+  return m.split(';')[0].slice(0, 5).toLowerCase();
+}
+
+/** Categoria que a uazapi entende. `ptt` é a mensagem de voz gravada. */
+function tipoDaMidia(mime, forcado) {
+  if (forcado === 'ptt') return 'ptt';
+  const m = String(mime || '');
+  if (m.startsWith('image')) return 'image';
+  if (m.startsWith('video')) return 'video';
+  if (m.startsWith('audio')) return 'audio';
+  return 'document';
+}
+
+const LIMITE_BYTES = 48 * 1024 * 1024;
+
+/**
+ * POST /api/crm/conversations/:phone/midia
+ *
+ * Recebe o arquivo como CORPO CRU (não multipart) com os metadados na query
+ * string, sobe para o bucket `media` do Supabase e manda o link pela uazapi.
+ *
+ * O formato vem do inbox do MVF, que já pagou o preço de descobrir: multipart em
+ * server action estourava o teto do transporte, o parser de FormData quebrava, e
+ * em rede ruim o corpo chegava CORTADO sem ninguém perceber. Por isso aqui se
+ * confere os bytes recebidos contra o Content-Length antes de subir qualquer
+ * coisa — arquivo pela metade vira mídia que o cliente não abre.
+ *
+ * A uazapi NÃO recebe bytes: ela baixa o arquivo da URL. Por isso o bucket é
+ * público, e por isso o upload precisa terminar ANTES do envio.
+ */
+router.post(
+  '/conversations/:phone/midia',
+  requireRole('admin'),
+  express.raw({ type: () => true, limit: LIMITE_BYTES }),
+  async (req, res, next) => {
+    try {
+      const telefone = String(req.params.phone || '').replace(/\D/g, '');
+      if (!telefone) return res.status(400).json({ error: { message: 'Telefone inválido.' } });
+
+      const bytes = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!bytes || bytes.length === 0) {
+        return res.status(400).json({ error: { message: 'Arquivo vazio ou não recebido.' } });
+      }
+      const declarado = Number(req.headers['content-length'] || 0);
+      if (declarado > 0 && bytes.length !== declarado) {
+        return res.status(400).json({
+          error: {
+            message: `O arquivo chegou incompleto (${bytes.length} de ${declarado} bytes). `
+              + 'A conexão caiu no meio — tente de novo.',
+          },
+        });
+      }
+      if (bytes.length > LIMITE_BYTES) {
+        return res.status(413).json({ error: { message: 'Arquivo grande demais (máx. 48MB).' } });
+      }
+
+      const mime = String(req.headers['content-type'] || 'application/octet-stream').split(';')[0];
+      const nomeArquivo = String(req.query.nome || '').slice(0, 120) || `arquivo.${extDoMime(mime)}`;
+      const legenda = String(req.query.legenda || '').slice(0, 1000);
+      const tipo = tipoDaMidia(mime, String(req.query.tipo || ''));
+
+      // Gravação sem som: o navegador entrega um arquivo válido porém mudo, e o
+      // cliente recebe um áudio que não toca. Melhor barrar e avisar.
+      if ((tipo === 'ptt' || tipo === 'audio') && bytes.length < 3000) {
+        return res.status(400).json({
+          error: { message: 'A gravação ficou sem som. Verifique o microfone e grave de novo.' },
+        });
+      }
+
+      const supaUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+      const supaKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      if (!supaUrl || !supaKey) {
+        return res.status(503).json({
+          error: { message: 'Armazenamento não configurado (SUPABASE_URL / SUPABASE_SERVICE_KEY).' },
+        });
+      }
+
+      const orgId = getOrgId(req);
+      const caminho = `${orgId}/out/${telefone}-${Date.now()}.${extDoMime(mime, nomeArquivo)}`;
+      const up = await fetch(`${supaUrl}/storage/v1/object/media/${caminho}`, {
+        method: 'POST',
+        headers: {
+          apikey: supaKey,
+          Authorization: `Bearer ${supaKey}`,
+          'Content-Type': mime,
+          'x-upsert': 'true',
+        },
+        body: bytes,
+      });
+      if (!up.ok) {
+        const txt = await up.text().catch(() => '');
+        return res.status(502).json({
+          error: { message: `Falha ao armazenar o arquivo (${up.status}). ${txt.slice(0, 120)}` },
+        });
+      }
+      const urlPublica = `${supaUrl}/storage/v1/object/public/media/${caminho}`;
+
+      const d = await query(
+        `SELECT id FROM deals
+          WHERE organization_id = $1
+            AND REGEXP_REPLACE(COALESCE(contact_phone, ''), '\\D', '', 'g') = $2
+          ORDER BY created_at DESC LIMIT 1`,
+        [orgId, telefone]
+      );
+
+      const r = await chamarBot('/admin/responder-midia', {
+        timeoutMs: 60000,
+        corpo: {
+          telefone,
+          url: urlPublica,
+          tipo,
+          legenda: legenda || undefined,
+          nomeArquivo,
+          atendente: (req.user && req.user.name) || undefined,
+          dealId: d.rows[0] ? d.rows[0].id : undefined,
+        },
+      });
+      return res.json({ ...r, url: urlPublica, tipo });
+    } catch (err) { return erroDoBot(res, err, next); }
+  }
+);
 
 /** GET — quem atende este telefone agora: a Rica ou uma pessoa. */
 router.get('/conversations/:phone/ia', async (req, res, next) => {

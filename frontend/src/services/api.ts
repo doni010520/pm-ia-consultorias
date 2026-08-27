@@ -611,6 +611,38 @@ export const crmApi = {
         `/api/crm/conversations/${encodeURIComponent(phone)}/responder${withOrg()}`,
         { method: 'POST', body: JSON.stringify({ texto }) }
       ),
+    /**
+     * Envia arquivo/áudio pelo WhatsApp.
+     *
+     * Corpo CRU e metadados na query string — nada de FormData. É o formato que
+     * o inbox do MVF chegou depois de apanhar: multipart estourava limites, o
+     * parser quebrava, e em rede ruim o corpo chegava cortado sem aviso. O
+     * servidor confere os bytes contra o Content-Length.
+     */
+    enviarMidia: async (
+      phone: string,
+      arquivo: Blob,
+      opcoes: { nome: string; legenda?: string; tipo?: 'ptt' } = { nome: 'arquivo' }
+    ) => {
+      const qs = new URLSearchParams({ nome: opcoes.nome })
+      if (opcoes.legenda) qs.set('legenda', opcoes.legenda)
+      if (opcoes.tipo) qs.set('tipo', opcoes.tipo)
+      const token = localStorage.getItem('pm-ia-token')
+      const res = await fetch(
+        `${API_URL}/api/crm/conversations/${encodeURIComponent(phone)}/midia?${qs}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': arquivo.type || 'application/octet-stream',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: arquivo,
+        }
+      )
+      const corpo = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(corpo?.error?.message || `Falha no envio (HTTP ${res.status})`)
+      return corpo as { enviado: boolean; iaDesligada: boolean; url: string; tipo: string }
+    },
     /** Quem atende este telefone agora: a Rica ou uma pessoa. */
     quemAtende: (phone: string) =>
       request<{ ia_ativa: boolean; registro: boolean }>(
