@@ -872,7 +872,77 @@ export function buildRicaTools(user) {
     },
   });
 
+  // ── BASE DE CONHECIMENTO (mesma que a Rica usa com o cliente) ───────────
+
+  /**
+   * O copiloto não tinha NENHUMA informação de produto: quando o time perguntou
+   * "quero saber sobre a jornada online", ele respondeu de cabeça, genérico.
+   *
+   * A saída não é copiar o catálogo para cá — o prompt do bot e esta cópia
+   * divergiriam, que é exatamente o bug que fez a Rica dizer "12 meses" enquanto
+   * o site prometia acesso vitalício. Aqui ele consulta a MESMA base vetorial
+   * (documents_base) que a Rica-lead consulta, então a fonte é uma só.
+   */
+  const buscar_conhecimento = tool({
+    description:
+      'Busca na base de conhecimento da empresa: fichas de produto (preço, o que inclui, '
+      + 'formas de pagamento, garantia, link de compra da Jornada da Lucratividade Online) e '
+      + 'relatórios técnicos do setor de panificação (CMV, margem, reforma tributária, '
+      + 'indicadores PROPAN). USE SEMPRE que perguntarem sobre um produto, preço, condição '
+      + 'comercial ou dado do setor — nunca responda esses assuntos de memória.',
+    parameters: z.object({
+      pergunta: z.string().describe('A pergunta com os TERMOS do usuário, sem reformular.'),
+    }),
+    execute: async ({ pergunta }) => {
+      const base = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+      const chave = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      const openaiKey = process.env.OPENAI_API_KEY || '';
+      if (!base || !chave || !openaiKey) {
+        return { encontrado: false, motivo: 'busca indisponível (faltam credenciais no servidor)' };
+      }
+      try {
+        const er = await fetch('https://api.openai.com/v1/embeddings', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'text-embedding-3-small', input: pergunta }),
+        });
+        if (!er.ok) return { encontrado: false, motivo: 'falha ao interpretar a pergunta' };
+        const emb = (await er.json()).data[0].embedding;
+
+        const rr = await fetch(`${base}/rest/v1/rpc/match_documents`, {
+          method: 'POST',
+          headers: { apikey: chave, Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query_embedding: emb, match_count: 5, filter: {} }),
+        });
+        if (!rr.ok) return { encontrado: false, motivo: 'falha na busca' };
+        const docs = await rr.json();
+
+        // O pgvector devolve SEMPRE os N mais próximos, mesmo sem relação nenhuma
+        // com a pergunta. Sem este piso, "quanto custa X" traz trecho aleatório e
+        // o modelo responde aquilo com confiança. Mesmo corte usado no rica-bot.
+        const relevantes = (Array.isArray(docs) ? docs : []).filter(d => (d.similarity ?? 0) >= 0.45);
+        if (!relevantes.length) {
+          return {
+            encontrado: false,
+            instrucao: 'Nada relevante na base. NÃO invente: diga que vai confirmar e ofereça checar com o comercial.',
+          };
+        }
+        return {
+          encontrado: true,
+          trechos: relevantes.map(d => ({
+            fonte: d.metadata?.arquivo || d.metadata?.source || 'documento interno',
+            conteudo: d.content,
+            similaridade: Number((d.similarity ?? 0).toFixed(2)),
+          })),
+        };
+      } catch (e) {
+        return { encontrado: false, motivo: 'erro ao consultar a base' };
+      }
+    },
+  });
+
   return {
+    buscar_conhecimento,
     search_deals,
     get_deal,
     list_pipelines,

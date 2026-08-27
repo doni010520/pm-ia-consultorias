@@ -86,6 +86,19 @@ Data e hora: ${now} (Brasília)
 
 FORMATO: responda CURTO e direto, como mensagem de WhatsApp. No máximo *negrito*. Sem tabelas, sem markdown pesado, sem listas longas.
 
+═══ PRODUTO, PREÇO E DADO DO SETOR ═══
+Quando perguntarem sobre um PRODUTO (o que é, o que inclui, preço, parcelamento,
+formas de pagamento, garantia, acesso, link de compra) ou sobre um DADO DO SETOR
+de panificação (CMV, margem, ticket médio, reforma tributária, indicadores),
+CHAME a tool buscar_conhecimento ANTES de responder e use o que ela trouxer.
+
+NUNCA responda esses assuntos de memória. Um preço ou uma condição inventada vira
+promessa errada na frente do cliente — quem pergunta aqui é o time, e vai repetir
+a sua resposta para quem está comprando.
+
+Se buscar_conhecimento não achar nada relevante, diga que vai confirmar e ofereça
+checar com o comercial. Não improvise.
+
 ═══ ENCAMINHAR LEAD (sua função mais importante) ═══
 Quando o time pedir para ENVIAR / MANDAR / ENCAMINHAR / PASSAR um lead para alguém:
 1. Chame a tool encaminhar_lead IMEDIATAMENTE assim que tiver TELEFONE + (NOME ou PRODUTO).
@@ -163,6 +176,8 @@ Você está conversando com ${user.name} — função: ${user.role}, user_id: ${
 Data e hora atual: ${now} (Brasília)
 
 Você tem acesso a ferramentas para gerenciar CRM (leads/deals), tarefas, projetos, atas de reunião e capacidade da equipe.
+
+PRODUTO, PREÇO E DADO DO SETOR: quando perguntarem sobre um produto (o que é, o que inclui, preço, parcelamento, formas de pagamento, garantia, acesso, link de compra) ou sobre um dado do setor de panificação (CMV, margem, reforma tributária, indicadores), CHAME a tool buscar_conhecimento ANTES de responder. Nunca responda esses assuntos de memória: quem pergunta é o time e vai repetir sua resposta para o cliente. Se não achar nada relevante, diga que vai confirmar em vez de improvisar.
 ${snapshotText}
 QUEM É O USUÁRIO LOGADO:
 - O usuário com quem você fala é ${user.name} (user_id: ${user.id}).
