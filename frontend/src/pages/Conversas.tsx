@@ -6,8 +6,12 @@ import {
   Bot,
   ExternalLink,
   MessageSquare,
+  Building2,
+  Mail,
+  MapPin,
   Phone,
   Search,
+  Tag,
   User,
 } from 'lucide-react'
 import { PageContainer } from '@/components/layout/PageContainer'
@@ -16,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { LoadingSpinner, EmptyState, ErrorState } from '@/components/shared/LoadingSpinner'
 import { crmApi } from '@/services/api'
-import { cn, formatRelative } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { Conversation, ConversationMessage, ConversationSender } from '@/types'
 
 const LIST_REFETCH_MS = 10_000
@@ -60,8 +64,75 @@ function formatPhone(phone: string | null | undefined): string {
   return `+${d}`
 }
 
+/**
+ * `contacts.name` recebe a string literal "Sem nome" quando o CRM cria o contato
+ * sem saber o nome (api/src/routes/crm.js). Isso NAO e um nome: se passasse
+ * direto, a lista inteira viraria "Sem nome" e o telefone -- que identifica de
+ * verdade -- ficaria escondido.
+ */
+const PLACEHOLDERS_DE_NOME = ['sem nome', 'sem nome ', 'desconhecido', 'null', 'undefined']
+
+function nomeUtil(nome: string | null | undefined): string {
+  const n = (nome ?? '').trim()
+  if (!n || PLACEHOLDERS_DE_NOME.includes(n.toLowerCase())) return ''
+  // so digitos/pontuacao de telefone tambem nao e nome
+  if (/^[\d\s+().-]+$/.test(n)) return ''
+  return n
+}
+
 function conversationLabel(c: Conversation): string {
-  return c.contact_name?.trim() || c.deal_title?.trim() || formatPhone(c.phone)
+  return nomeUtil(c.contact_name) || nomeUtil(c.deal_title) || formatPhone(c.phone)
+}
+
+/** Iniciais para o avatar. Cai para o fim do telefone quando nao ha nome. */
+function iniciaisDe(c: Conversation): string {
+  const nome = nomeUtil(c.contact_name) || nomeUtil(c.deal_title)
+  if (nome) {
+    const partes = nome.split(/\s+/).filter(Boolean)
+    const a = partes[0]?.[0] ?? ''
+    const b = partes.length > 1 ? (partes[partes.length - 1]?.[0] ?? '') : ''
+    return (a + b).toUpperCase()
+  }
+  return (c.phone || '').replace(/\D/g, '').slice(-2) || '?'
+}
+
+/**
+ * Cor estavel por telefone. Hash simples so para espalhar: a mesma conversa
+ * precisa ter sempre a mesma cor, senao o avatar "pisca" de cor a cada refetch.
+ */
+const CORES_AVATAR = [
+  'bg-indigo-100 text-indigo-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-sky-100 text-sky-700',
+  'bg-violet-100 text-violet-700',
+  'bg-teal-100 text-teal-700',
+  'bg-orange-100 text-orange-700',
+]
+
+function corAvatar(chave: string): string {
+  let h = 0
+  for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0
+  return CORES_AVATAR[h % CORES_AVATAR.length] as string
+}
+
+/**
+ * Hora no formato do inbox: so o relogio quando e de hoje, dia/mes quando e
+ * mais antigo. "ha 4 minutos" ocupa mais espaco e diz menos numa lista longa.
+ */
+function horaDaLista(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const hoje = new Date()
+  const mesmoDia =
+    d.getDate() === hoje.getDate() &&
+    d.getMonth() === hoje.getMonth() &&
+    d.getFullYear() === hoje.getFullYear()
+  return mesmoDia
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
 const IN_VALUES = ['in', 'inbound', 'incoming', 'received']
@@ -164,24 +235,51 @@ function ConversationRow({ conversation, active, onSelect }: {
         active ? 'bg-indigo-50' : 'hover:bg-slate-50'
       )}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-slate-800 truncate">
-          {conversationLabel(conversation)}
-        </span>
-        <span className="text-[10px] text-slate-400 shrink-0">
-          {conversation.last_message_at ? formatRelative(conversation.last_message_at) : ''}
-        </span>
+      <div className="flex gap-2.5">
+        <div
+          className={cn(
+            'h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold',
+            corAvatar(conversation.phone)
+          )}
+          aria-hidden
+        >
+          {iniciaisDe(conversation)}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-sm font-medium text-slate-800 truncate">
+              {conversationLabel(conversation)}
+            </span>
+            <span className="text-[10px] text-slate-400 shrink-0 tabular-nums">
+              {horaDaLista(conversation.last_message_at)}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 truncate mt-0.5">
+            {listDirection === 'out' && <span className="text-slate-400">Rica: </span>}
+            {preview}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            {conversation.owner_name && (
+              <span className="text-[10px] text-slate-400 truncate flex items-center gap-1">
+                <User className="h-3 w-3" />
+                {conversation.owner_name}
+              </span>
+            )}
+            {conversation.message_count > 0 && (
+              // Total de mensagens da conversa -- NAO e "nao lidas". Ninguem
+              // rastreia leitura por usuario aqui, entao nada de badge colorida:
+              // pintar de verde faria a equipe ler como pendencia.
+              <span
+                className="text-[10px] text-slate-400 ml-auto shrink-0 tabular-nums"
+                title={`${conversation.message_count} mensagens nesta conversa`}
+              >
+                {conversation.message_count}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-      <p className="text-xs text-slate-500 truncate mt-0.5">
-        {listDirection === 'out' && <span className="text-slate-400">Rica: </span>}
-        {preview}
-      </p>
-      {conversation.owner_name && (
-        <p className="text-[10px] text-slate-400 truncate mt-1 flex items-center gap-1">
-          <User className="h-3 w-3" />
-          {conversation.owner_name}
-        </p>
-      )}
     </button>
   )
 }
@@ -324,6 +422,118 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
               </Fragment>
             )
           })
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Uma linha do painel lateral. Some sozinha quando nao ha valor. */
+function DadoDoContato({ icone: Icone, rotulo, valor }: {
+  icone: typeof User
+  rotulo: string
+  valor: string | null | undefined
+}) {
+  const v = (valor ?? '').trim()
+  if (!v) return null
+  return (
+    <div className="flex gap-2 py-1.5">
+      <Icone className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wide text-slate-400">{rotulo}</p>
+        <p className="text-xs text-slate-700 break-words">{v}</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Painel lateral com o cadastro do contato, no espirito do inbox do MVF.
+ *
+ * Busca sob demanda (so quando ha conversa aberta) e SEM polling: cadastro nao
+ * muda a cada segundo, e a lista + thread ja batem no banco a cada 8-10s.
+ */
+function ContactPanel({ conversation }: { conversation: Conversation }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['crm-contact-by-phone', conversation.phone],
+    queryFn: () => crmApi.contacts.byPhone(conversation.phone),
+    staleTime: 60_000,
+  })
+
+  const contato = data?.contact ?? null
+  const nome = nomeUtil(contato?.name) || nomeUtil(conversation.contact_name) || formatPhone(conversation.phone)
+
+  return (
+    <div className="hidden lg:flex lg:w-72 lg:shrink-0 border-l flex-col min-h-0 bg-slate-50">
+      <div className="p-4 border-b bg-white">
+        <div className="flex flex-col items-center text-center gap-2">
+          <div
+            className={cn(
+              'h-14 w-14 rounded-full flex items-center justify-center text-lg font-semibold',
+              corAvatar(conversation.phone)
+            )}
+            aria-hidden
+          >
+            {iniciaisDe(conversation)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800 truncate">{nome}</p>
+            <p className="text-xs text-slate-500">{formatPhone(conversation.phone)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
+        <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Dados do contato</p>
+
+        {isLoading ? (
+          <p className="text-xs text-slate-400 py-2">Carregando…</p>
+        ) : (
+          <>
+            <DadoDoContato icone={Mail} rotulo="E-mail" valor={contato?.email} />
+            <DadoDoContato icone={Building2} rotulo="Empresa" valor={contato?.company_name} />
+            <DadoDoContato icone={MapPin} rotulo="Cidade" valor={contato?.city} />
+            <DadoDoContato icone={MapPin} rotulo="Endereço" valor={contato?.address} />
+            <DadoDoContato icone={Tag} rotulo="Origem do lead" valor={contato?.origem_lead} />
+            <DadoDoContato icone={Tag} rotulo="Interesses" valor={contato?.interesses} />
+
+            {/* Sem cadastro nenhum: melhor dizer isso do que mostrar um painel vazio */}
+            {!contato && (
+              <p className="text-xs text-slate-400 py-2">
+                Ainda não há cadastro para este telefone.
+              </p>
+            )}
+          </>
+        )}
+
+        <div className="mt-4 pt-3 border-t">
+          <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Atendimento</p>
+          <DadoDoContato icone={User} rotulo="Executivo" valor={conversation.owner_name} />
+          <DadoDoContato icone={Tag} rotulo="Funil" valor={conversation.pipeline_name} />
+          <DadoDoContato icone={Tag} rotulo="Negócio" valor={conversation.deal_title} />
+          <DadoDoContato
+            icone={Tag}
+            rotulo="Situação"
+            valor={conversation.deal_status === 'open' ? 'Em aberto'
+              : conversation.deal_status === 'won' ? 'Ganho'
+              : conversation.deal_status === 'lost' ? 'Perdido'
+              : conversation.deal_status}
+          />
+          <DadoDoContato
+            icone={MessageSquare}
+            rotulo="Mensagens"
+            valor={conversation.message_count ? String(conversation.message_count) : null}
+          />
+        </div>
+
+        {conversation.deal_id && (
+          <Link
+            to={`/crm?deal=${conversation.deal_id}`}
+            className="mt-4 inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Abrir no CRM
+          </Link>
         )}
       </div>
     </div>
@@ -474,6 +684,9 @@ export default function Conversas() {
               </div>
             )}
           </div>
+
+          {/* Dados do contato — só em telas grandes, para não espremer o thread */}
+          {selected && <ContactPanel key={selected.phone} conversation={selected} />}
         </div>
       </Card>
     </PageContainer>

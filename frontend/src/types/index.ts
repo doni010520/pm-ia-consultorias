@@ -342,6 +342,16 @@ export interface Contact {
   role: string | null
   notes: string | null
   deals_count?: string
+  // Colunas que existem em `contacts` no banco mas faltavam aqui. Todas
+  // opcionais: nem todo endpoint faz SELECT * (o by-phone faz).
+  city?: string | null
+  address?: string | null
+  origem_lead?: string | null
+  tipo_cliente?: string | null
+  status_funil?: string | null
+  interesses?: string | null
+  cpf?: string | null
+  avatar_url?: string | null
   created_at: string
   updated_at: string
 }
