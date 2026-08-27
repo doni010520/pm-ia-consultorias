@@ -349,7 +349,8 @@ export interface Contact {
   origem_lead?: string | null
   tipo_cliente?: string | null
   status_funil?: string | null
-  interesses?: string | null
+  /** jsonb no banco: chega como array (`[]` no caso comum), nunca como string. */
+  interesses?: unknown
   cpf?: string | null
   avatar_url?: string | null
   created_at: string

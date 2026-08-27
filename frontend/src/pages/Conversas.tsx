@@ -72,8 +72,24 @@ function formatPhone(phone: string | null | undefined): string {
  */
 const PLACEHOLDERS_DE_NOME = ['sem nome', 'sem nome ', 'desconhecido', 'null', 'undefined']
 
-function nomeUtil(nome: string | null | undefined): string {
-  const n = (nome ?? '').trim()
+/**
+ * Converte um valor da API em texto exibível, sem supor que ele é string.
+ *
+ * Colunas jsonb chegam como ARRAY ou objeto — `contacts.interesses` vem como `[]`
+ * em todo contato. E `[] ?? ''` continua sendo o array, então `.trim()` nele
+ * lança TypeError e derruba a tela inteira pelo ErrorBoundary. Era exatamente
+ * este o crash em /crm/conversas.
+ */
+function textoDe(valor: unknown): string {
+  if (valor === null || valor === undefined) return ''
+  if (typeof valor === 'string') return valor.trim()
+  if (typeof valor === 'number' || typeof valor === 'boolean') return String(valor)
+  if (Array.isArray(valor)) return valor.map(textoDe).filter(Boolean).join(', ')
+  return '' // objeto solto não tem forma útil de exibir aqui
+}
+
+function nomeUtil(nome: unknown): string {
+  const n = textoDe(nome)
   if (!n || PLACEHOLDERS_DE_NOME.includes(n.toLowerCase())) return ''
   // so digitos/pontuacao de telefone tambem nao e nome
   if (/^[\d\s+().-]+$/.test(n)) return ''
@@ -432,9 +448,10 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
 function DadoDoContato({ icone: Icone, rotulo, valor }: {
   icone: typeof User
   rotulo: string
-  valor: string | null | undefined
+  /** unknown de propósito: a API manda jsonb (array), number e null por aqui. */
+  valor: unknown
 }) {
-  const v = (valor ?? '').trim()
+  const v = textoDe(valor)
   if (!v) return null
   return (
     <div className="flex gap-2 py-1.5">
@@ -522,7 +539,7 @@ function ContactPanel({ conversation }: { conversation: Conversation }) {
           <DadoDoContato
             icone={MessageSquare}
             rotulo="Mensagens"
-            valor={conversation.message_count ? String(conversation.message_count) : null}
+            valor={conversation.message_count || null}
           />
         </div>
 
