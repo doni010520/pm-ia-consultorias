@@ -4,11 +4,19 @@ import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
-const ADMIN_NAME = 'Renato Barros';
-const ADMIN_EMAIL = 'renato@pmia.com';
-const ADMIN_PASSWORD = 'pm-ia-2024';
+// Credenciais vêm do ambiente — nunca hardcode nome/email/senha (o repo é público).
+const ADMIN_NAME = process.env.SEED_ADMIN_NAME;
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 const ADMIN_ROLE = 'admin';
 const ORG_ID = process.env.DEFAULT_ORGANIZATION_ID || '00000000-0000-0000-0000-000000000001';
+
+if (!ADMIN_NAME || !ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error(
+    '❌ Defina SEED_ADMIN_NAME, SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD no ambiente (ou no .env) antes de rodar o seed.'
+  );
+  process.exit(1);
+}
 
 async function seed() {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -24,7 +32,7 @@ async function seed() {
          name = EXCLUDED.name,
          role = EXCLUDED.role
        RETURNING id, name, email, role`,
-      [ORG_ID, ADMIN_NAME, ADMIN_EMAIL, password_hash, ADMIN_ROLE]
+      [ORG_ID, ADMIN_NAME, ADMIN_EMAIL.toLowerCase().trim(), password_hash, ADMIN_ROLE]
     );
 
     console.log('✅ Admin criado/atualizado:', result.rows[0]);

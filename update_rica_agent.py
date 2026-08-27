@@ -12,14 +12,18 @@ import requests
 sys.stdout.reconfigure(encoding='utf-8')
 
 # ── Config ──────────────────────────────────────────────────────────────────
-API_BASE = "https://criadordigital-n8n-editor.zsvt2k.easypanel.host/api/v1"
-WORKFLOW_ID = "56f4gE0UKHEXMUfa"
-API_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJzdWIiOiI4ZTRmZTg2NS02ZDRlLTQ2ZGYtYTBlYi1lZTM1ZWEzOTk4MzUiLCJpc3Mi"
-    "OiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzc1NjU5NDY2LCJleHAiOjE3"
-    "NzgyMDkyMDB9.60oOAnp2eypywCvpxLKMEA7kVuFOE2DTndEf53wzS1g"
-)
+# Credenciais vêm do ambiente — nunca hardcode a chave aqui (o repo é público).
+N8N_API_URL = os.environ.get("N8N_API_URL")
+API_KEY = os.environ.get("N8N_API_KEY")
+
+if not N8N_API_URL or not API_KEY:
+    sys.exit(
+        "Erro: defina N8N_API_URL e N8N_API_KEY no ambiente antes de rodar este script. "
+        "Ex (bash): export N8N_API_URL=https://seu-n8n.exemplo.com N8N_API_KEY=..."
+    )
+
+API_BASE = N8N_API_URL.rstrip("/") + "/api/v1"
+WORKFLOW_ID = os.environ.get("N8N_WORKFLOW_ID", "56f4gE0UKHEXMUfa")
 HEADERS = {
     "X-N8N-API-KEY": API_KEY,
     "Content-Type": "application/json",

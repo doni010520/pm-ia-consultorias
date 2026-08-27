@@ -19,7 +19,7 @@ import ricaChatRouter from './routes/rica-chat.js';
 import integrationsRouter from './routes/integrations.js';
 
 // Middleware
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, avisarSeSemServiceKey } from './middleware/auth.js';
 
 // Serviços
 import { initDatabase } from './services/database.js';
@@ -29,6 +29,9 @@ import { initScheduler, runDailyAlerts } from './services/scheduler.js';
 
 // Carregar variáveis de ambiente
 dotenv.config();
+
+// Avisa se a API está sem autenticação de serviço (fallback por organization_id aberto)
+avisarSeSemServiceKey();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

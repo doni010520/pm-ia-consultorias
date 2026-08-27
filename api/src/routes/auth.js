@@ -223,11 +223,19 @@ router.get('/users', requireAuth, async (req, res, next) => {
 
 /**
  * PATCH /api/auth/users/:userId — Editar membro da equipe
+ * Protected: admin only (escopo restrito à própria organização)
  */
-router.patch('/users/:userId', async (req, res, next) => {
+router.patch('/users/:userId', requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     const { userId } = req.params;
     const { name, email, whatsapp, hourly_rate, role } = req.body;
+
+    // Evita que um admin rebaixe a si mesmo por acidente e perca o acesso
+    if (role !== undefined && userId === req.user.id && role !== req.user.role) {
+      return res.status(400).json({
+        error: { message: 'Você não pode alterar o seu próprio nível de acesso. Peça a outro admin.' },
+      });
+    }
 
     const fields = [];
     const values = [];
@@ -244,10 +252,14 @@ router.patch('/users/:userId', async (req, res, next) => {
     }
 
     fields.push('updated_at = NOW()');
+    const idxUser = idx++;
     values.push(userId);
+    const idxOrg = idx++;
+    values.push(req.organizationId);
 
+    // Escopo de organização: um admin só edita usuários da própria org
     const result = await query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, name, email, role, whatsapp, hourly_rate, is_active`,
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idxUser} AND organization_id = $${idxOrg} RETURNING id, name, email, role, whatsapp, hourly_rate, is_active`,
       values
     );
 
