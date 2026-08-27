@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -106,11 +106,44 @@ function senderLabel(msg: ConversationMessage, leadName: string): string {
   return 'Rica'
 }
 
+// So a hora: o dia passou a ser responsabilidade do separador de data, e
+// repeti-lo em cada balao poluia a leitura.
 function formatTime(date: string | null): string {
   if (!date) return ''
   const d = new Date(date)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+// O backfill do historico do n8n gravou horario ESTIMADO onde a origem nao
+// tinha data nenhuma (2635 das 3628 mensagens). A ORDEM e confiavel; o relogio
+// nao. Sem esta marca, alguem leria "o lead respondeu em 2 minutos" como fato.
+function isApproximateTime(msg: ConversationMessage): boolean {
+  const v = (msg.metadata as Record<string, unknown> | null)?.hora_aproximada
+  return v === true || v === 'true'
+}
+
+function dayKey(date: string | null): string {
+  if (!date) return ''
+  const d = new Date(date)
+  return Number.isNaN(d.getTime()) ? '' : d.toDateString()
+}
+
+function formatDayLabel(date: string | null): string {
+  if (!date) return ''
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  const hoje = new Date()
+  const inicio = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const dias = Math.round((inicio(hoje) - inicio(d)) / 86_400_000)
+  if (dias === 0) return 'Hoje'
+  if (dias === 1) return 'Ontem'
+  if (dias > 1 && dias < 7) return d.toLocaleDateString('pt-BR', { weekday: 'long' })
+  return d.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    ...(d.getFullYear() === hoje.getFullYear() ? {} : { year: 'numeric' }),
+  })
 }
 
 function ConversationRow({ conversation, active, onSelect }: {
@@ -154,6 +187,7 @@ function ConversationRow({ conversation, active, onSelect }: {
 function MessageBubble({ message, leadName }: { message: ConversationMessage; leadName: string }) {
   const fromLead = isFromLead(message)
   const isFollowup = resolveSender(message) === 'system_followup'
+  const aproximado = isApproximateTime(message)
   return (
     <div className={cn('flex', fromLead ? 'justify-start' : 'justify-end')}>
       <div
@@ -180,7 +214,11 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
             {message.media_type || 'anexo'}
           </a>
         )}
-        <p className={cn('text-[10px] mt-1', fromLead || isFollowup ? 'text-slate-400' : 'opacity-60')}>
+        <p
+          className={cn('text-[10px] mt-1', fromLead || isFollowup ? 'text-slate-400' : 'opacity-60')}
+          title={aproximado ? 'Horario estimado: a origem desta mensagem nao guardou data' : undefined}
+        >
+          {aproximado && '~'}
           {formatTime(message.sent_at || message.created_at)}
         </p>
       </div>
@@ -200,6 +238,7 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
   })
 
   const messages = useMemo(() => data?.messages ?? [], [data])
+  const temAproximado = useMemo(() => messages.some(isApproximateTime), [messages])
   const leadName = conversation.contact_name?.trim() || 'Lead'
   const waPhone = digitsOnly(conversation.phone)
 
@@ -250,6 +289,13 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
         </div>
       </div>
 
+      {temAproximado && (
+        <p className="border-b bg-amber-50 px-4 py-1.5 text-[11px] text-amber-800">
+          Conversa importada do histórico: os horários com <span className="font-semibold">~</span> são
+          estimados. A ordem das mensagens está correta.
+        </p>
+      )}
+
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 bg-slate-50">
         {isLoading ? (
           <LoadingSpinner />
@@ -258,7 +304,24 @@ function Thread({ conversation, onBack }: { conversation: Conversation; onBack: 
         ) : messages.length === 0 ? (
           <EmptyState message="Nenhuma mensagem nesta conversa" />
         ) : (
-          messages.map(msg => <MessageBubble key={msg.id} message={msg} leadName={leadName} />)
+          messages.map((msg, i) => {
+            const anterior = i > 0 ? messages[i - 1] : null
+            const chave = dayKey(msg.sent_at || msg.created_at)
+            const virouDia =
+              chave !== '' && chave !== dayKey(anterior ? anterior.sent_at || anterior.created_at : null)
+            return (
+              <Fragment key={msg.id}>
+                {virouDia && (
+                  <div className="flex justify-center pt-1">
+                    <span className="rounded-full bg-slate-200/80 px-3 py-0.5 text-[10px] font-medium capitalize text-slate-500">
+                      {formatDayLabel(msg.sent_at || msg.created_at)}
+                    </span>
+                  </div>
+                )}
+                <MessageBubble message={msg} leadName={leadName} />
+              </Fragment>
+            )
+          })
         )}
       </div>
     </div>
