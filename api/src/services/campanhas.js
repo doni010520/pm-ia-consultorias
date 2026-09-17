@@ -108,6 +108,12 @@ function somaDias(dia, n) {
  */
 export function resolverPeriodo({ period, start_date, end_date } = {}, agora = new Date()) {
   const hoje = isoDia(agora);
+  // O modelo às vezes manda a data dentro de `period` ("2026-08-01") em vez do
+  // preset. Aproveita como data inicial em vez de ignorar o que ele quis dizer.
+  if (period && /^\d{4}-\d{2}-\d{2}/.test(period)) {
+    start_date = start_date || period.slice(0, 10);
+    period = undefined;
+  }
   let ini;
   let fimInclusivo;
 

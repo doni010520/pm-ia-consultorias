@@ -2,6 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { query, createTask, getTasks } from './database.js';
 import { relatorioCampanhas, resolverPeriodo, resolverCampanha, CAMPANHAS, ETAPAS_DA_LISTA } from './campanhas.js';
+import { blindarTools } from './blindagem.js';
 import {
   fetchAllConsultantsData,
   generateDayCapacities,
@@ -734,7 +735,7 @@ export function buildRicaTools(user) {
 
   // ── RELATÓRIO — ENTRADA DE LEADS ─────────────────────────────────────────
   const relatorio_leads = tool({
-    description: 'Relatório de ENTRADA de leads por período, funil, origem e executivo responsável. Responde "quantos leads da GPS chegaram este mês", "quantos leads do GPS foram enviados pro André essa semana", "quantos leads novos por funil". Origem "whatsapp" = leads que vieram pela Rica do WhatsApp. owner_name filtra pelo executivo dono do lead (ex: "André"). Retorna total, quebra por funil, quebra por responsável e a lista.',
+    description: 'Relatório de CARDS NO CRM (funil): quantos negócios foram criados no período, por funil, origem e responsável. Responde "quantos cards no funil GPS", "quantos negócios o André tem", "quantos leads novos por funil". NÃO use para pergunta sobre ANÚNCIO/CAMPANHA/TRÁFEGO nem para "quantos leads chegaram/vieram do GPS/Jornada/Mentoria" — nesses casos a contagem certa é relatorio_campanhas, e este número sai diferente do painel de anúncios. owner_name filtra pelo executivo dono do card. Retorna total, quebra por funil, quebra por responsável e a lista.',
     parameters: z.object({
       period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().default('mes').describe('Período (horário de Brasília). "semana" = desde segunda, "mes" = mês atual.'),
       pipeline_name: z.string().optional().describe('Nome do funil para filtrar, ex: "GPS". Busca parcial.'),
@@ -865,7 +866,7 @@ export function buildRicaTools(user) {
 
   // ── RELATÓRIO — CAMPANHAS DE TRÁFEGO (bate com o painel de anúncios) ──────
   const relatorio_campanhas = tool({
-    description: 'Relatório por CAMPANHA DE ANÚNCIO: quantas pessoas chegaram pela mensagem pronta do anúncio, se a Rica respondeu todas, quantas responderam, quantas foram passadas a executivo (e para quem), quantas receberam link de compra e ONDE as demais pararam. Use para qualquer pergunta sobre tráfego, anúncio, campanha, "conversas iniciadas", "quantos leads do GPS/Jornada/JDL/Mentoria chegaram", "onde os leads param", "a Rica respondeu todos?". Campanhas: ' + CAMPANHAS.map((c) => c.nome).join(', ') + '.',
+    description: 'Relatório por CAMPANHA DE ANÚNCIO: quantas pessoas chegaram pela mensagem pronta do anúncio, se a Rica respondeu todas, quantas responderam, quantas foram passadas a executivo (e para quem), quantas receberam link de compra e ONDE as demais pararam. Use para qualquer pergunta sobre tráfego, anúncio, campanha, "conversas iniciadas", "quantos leads do GPS/Jornada/JDL/Mentoria chegaram", "onde os leads param", "a Rica respondeu todos?". Campanhas: ' + CAMPANHAS.map((c) => c.nome).join(', ') + '. PERÍODO: só informe period/start_date/end_date se a pessoa DISSE o período. Se ela não disse (inclusive quando só cita um número do tráfego, ex.: "na jornada foram 34"), NÃO chame esta tool: pergunte antes de qual período ela quer. Chutar o período faz o número sair diferente do dela.',
     parameters: z.object({
       campanha: z.string().optional().describe('Nome livre da campanha ("GPS", "jornada", "JDL", "mentoria coletiva"). Omita para todas + quem chegou sem campanha.'),
       period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().describe('Período (horário de Brasília).'),
@@ -958,7 +959,7 @@ export function buildRicaTools(user) {
     },
   });
 
-  return {
+  const todas = {
     buscar_conhecimento,
     search_deals,
     get_deal,
@@ -985,4 +986,8 @@ export function buildRicaTools(user) {
     relatorio_atendimentos,
     relatorio_campanhas,
   };
+
+  // Tool que falha responde "não consegui" em vez de estourar exceção e virar
+  // erro na cara de quem perguntou (ver blindagem.js).
+  return blindarTools(todas);
 }

@@ -6,6 +6,7 @@ import { query } from '../services/database.js';
 import { buildSystemPrompt, buildCopilotPrompt } from '../services/rica-system-prompt.js';
 import { buildRicaTools } from '../services/rica-tools.js';
 import { ehPerguntaDeRelatorio } from '../services/campanhas.js';
+import { blindarTools, repararChamadaDeTool } from '../services/blindagem.js';
 
 const router = Router();
 
@@ -220,6 +221,7 @@ router.post('/', async (req, res, next) => {
       messages: allMessages,
       tools,
       maxSteps: 8,
+      experimental_repairToolCall: repararChamadaDeTool,
       temperature: 0.3,
       onFinish: async ({ text, usage }) => {
         // Persist the new messages to DB
@@ -369,6 +371,7 @@ router.post('/ask', async (req, res, next) => {
       messages: [...priorMessages, { role: 'user', content: String(message) }],
       tools,
       maxSteps: 6,
+      experimental_repairToolCall: repararChamadaDeTool,
       temperature: 0.3,
     });
 

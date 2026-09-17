@@ -79,6 +79,11 @@ describe('resolverPeriodo', () => {
     expect(resolverPeriodo({ period: 'hoje' }, noite).rotulo).toBe('17/09/2026')
   })
 
+  it('data mandada dentro de period (erro comum do modelo) vale como data inicial', () => {
+    const p = resolverPeriodo({ period: '2026-08-01', end_date: '2026-08-31' }, agora)
+    expect(p.rotulo).toBe('01/08/2026 a 31/08/2026')
+  })
+
   it('semana começa na segunda', () => {
     expect(resolverPeriodo({ period: 'semana' }, agora).rotulo).toBe('14/09/2026 a 17/09/2026')
   })
