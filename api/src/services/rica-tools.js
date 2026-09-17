@@ -1,6 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { query, createTask, getTasks } from './database.js';
+import { relatorioCampanhas, resolverPeriodo, resolverCampanha, CAMPANHAS, ETAPAS_DA_LISTA } from './campanhas.js';
 import {
   fetchAllConsultantsData,
   generateDayCapacities,
@@ -735,31 +736,19 @@ export function buildRicaTools(user) {
   const relatorio_leads = tool({
     description: 'Relatório de ENTRADA de leads por período, funil, origem e executivo responsável. Responde "quantos leads da GPS chegaram este mês", "quantos leads do GPS foram enviados pro André essa semana", "quantos leads novos por funil". Origem "whatsapp" = leads que vieram pela Rica do WhatsApp. owner_name filtra pelo executivo dono do lead (ex: "André"). Retorna total, quebra por funil, quebra por responsável e a lista.',
     parameters: z.object({
-      period: z.enum(['hoje', 'semana', 'mes', 'mes_passado', 'tudo']).optional().default('mes').describe('Período. "semana" = semana atual, "mes" = mês atual (padrão).'),
+      period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().default('mes').describe('Período (horário de Brasília). "semana" = desde segunda, "mes" = mês atual.'),
       pipeline_name: z.string().optional().describe('Nome do funil para filtrar, ex: "GPS". Busca parcial.'),
       owner_name: z.string().optional().describe('Nome do executivo/responsável dono do lead, ex: "André". Busca parcial. Use para "leads enviados pro <executivo>".'),
       source: z.string().optional().describe('Origem. Use "whatsapp" para leads que vieram pela Rica do WhatsApp.'),
-      start_date: z.string().optional().describe('Data inicial ISO (sobrescreve period).'),
-      end_date: z.string().optional().describe('Data final ISO (sobrescreve period).'),
+      start_date: z.string().optional().describe('Data inicial YYYY-MM-DD, inclusiva (sobrescreve period).'),
+      end_date: z.string().optional().describe('Data final YYYY-MM-DD, inclusiva.'),
       limit: z.number().int().min(1).max(100).optional().default(50).describe('Máximo de leads na lista.'),
     }),
     execute: async ({ period = 'mes', pipeline_name, owner_name, source, start_date, end_date, limit = 50 }) => {
-      const params = [orgId];
-      let idx = 2;
-      let dateCond = '';
-      if (start_date || end_date) {
-        if (start_date) { dateCond += ` AND d.created_at >= $${idx++}`; params.push(start_date); }
-        if (end_date) { dateCond += ` AND d.created_at <= $${idx++}`; params.push(end_date); }
-      } else {
-        switch (period) {
-          case 'hoje': dateCond = ` AND d.created_at >= date_trunc('day', NOW())`; break;
-          case 'semana': dateCond = ` AND d.created_at >= date_trunc('week', NOW())`; break;
-          case 'mes_passado': dateCond = ` AND d.created_at >= date_trunc('month', NOW()) - INTERVAL '1 month' AND d.created_at < date_trunc('month', NOW())`; break;
-          case 'tudo': dateCond = ''; break;
-          case 'mes':
-          default: dateCond = ` AND d.created_at >= date_trunc('month', NOW())`; break;
-        }
-      }
+      const periodo = resolverPeriodo({ period, start_date, end_date });
+      const params = [orgId, periodo.inicio, periodo.fim];
+      let idx = 4;
+      let dateCond = ` AND d.created_at >= $2 AND d.created_at < $3`;
       if (pipeline_name) { dateCond += ` AND p.name ILIKE $${idx++}`; params.push(`%${pipeline_name}%`); }
       if (owner_name) { dateCond += ` AND u.name ILIKE $${idx++}`; params.push(`%${owner_name}%`); }
       if (source) { dateCond += ` AND d.source ILIKE $${idx++}`; params.push(`%${source}%`); }
@@ -796,6 +785,8 @@ export function buildRicaTools(user) {
 
       const total = aggResult.rows.reduce((s, r) => s + Number(r.qtd), 0);
       return {
+        periodo: periodo.rotulo,
+        criterio: 'Cards criados no CRM no período (funil). Não é o mesmo que quem chegou pelo anúncio — para campanha use relatorio_campanhas.',
         total,
         por_funil: aggResult.rows,
         por_responsavel: ownerAgg.rows,
@@ -807,68 +798,94 @@ export function buildRicaTools(user) {
   });
 
   // ── RELATÓRIO — ATENDIMENTOS NO WHATSAPP (conversas, não o funil) ──────────
+  // Antes: só CONTATOS NOVOS do mês e assunto pela 1ª mensagem do n8n_chat_histories.
+  // "Jornada" dava 0 (o anúncio diz "JDL") e quem voltou sumia. Agora conta quem
+  // FALOU no período, separando novos de quem retornou.
   const relatorio_atendimentos = tool({
-    description: 'Relatório de TODOS os atendimentos/conversas que chegaram pelo WhatsApp — todo mundo que falou com a Rica, INDEPENDENTE de ter virado card num funil específico. É DIFERENTE de relatorio_leads (que conta o CRM/funil). Use para "quantos leads chegaram no whatsapp essa semana", "quantos perguntaram sobre GPS", "quantos atendimentos hoje". O filtro "assunto" busca no que a pessoa escreveu na conversa (ex: "GPS" pega quem perguntou de GPS Padaria mesmo que ainda esteja em Entrada de Leads).',
+    description: 'Relatório de TODAS as pessoas que falaram com a Rica no WhatsApp no período, novas ou que retornaram, independente de funil. Use para "quantos atendimentos hoje", "quantas pessoas falaram com a Rica essa semana". Para perguntas sobre CAMPANHA/ANÚNCIO/TRÁFEGO (GPS, Jornada/JDL, Mentoria) use relatorio_campanhas, que é a contagem que bate com o painel de anúncios.',
     parameters: z.object({
-      period: z.enum(['hoje', 'semana', 'mes', 'mes_passado', 'tudo']).optional().default('semana').describe('Período de chegada. "semana" = semana atual.'),
-      assunto: z.string().optional().describe('Tema/interesse para filtrar pelo que a pessoa escreveu, ex: "GPS". Omita para contar todos que chegaram.'),
+      period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().default('semana').describe('Período (horário de Brasília).'),
+      start_date: z.string().optional().describe('Data inicial YYYY-MM-DD, inclusiva (sobrescreve period).'),
+      end_date: z.string().optional().describe('Data final YYYY-MM-DD, inclusiva.'),
+      assunto: z.string().optional().describe('Tema citado por quem escreveu, ex: "GPS", "jornada". Omita para contar todos.'),
       limit: z.number().int().min(1).max(100).optional().default(50),
     }),
-    execute: async ({ period = 'semana', assunto, limit = 50 }) => {
-      let dateCond = '';
-      switch (period) {
-        case 'hoje': dateCond = ` AND c.created_at >= date_trunc('day', NOW())`; break;
-        case 'semana': dateCond = ` AND c.created_at >= date_trunc('week', NOW())`; break;
-        case 'mes_passado': dateCond = ` AND c.created_at >= date_trunc('month', NOW()) - INTERVAL '1 month' AND c.created_at < date_trunc('month', NOW())`; break;
-        case 'tudo': dateCond = ''; break;
-        case 'mes':
-        default: dateCond = ` AND c.created_at >= date_trunc('month', NOW())`; break;
+    execute: async ({ period = 'semana', start_date, end_date, assunto, limit = 50 }) => {
+      const periodo = resolverPeriodo({ period, start_date, end_date });
+      const camp = assunto ? resolverCampanha(assunto) : null;
+      const termos = camp
+        ? CAMPANHAS.find((c) => c.id === camp).apelidos
+        : assunto ? [assunto] : null;
+      const params = [orgId, periodo.inicio, periodo.fim];
+      let filtro = '';
+      if (termos) {
+        params.push(termos.map((t) => `%${t}%`));
+        filtro = ` AND EXISTS (SELECT 1 FROM deal_messages x WHERE x.organization_id = $1
+          AND right(x.rica_session_id,8) = p.k AND x.role = 'cliente'
+          AND x.occurred_at >= $2 AND x.occurred_at < $3 AND x.content ILIKE ANY($4))`;
       }
-
-      const params = [orgId];
-      let assuntoFilter = '';
-      if (assunto) { assuntoFilter = ` AND fm.primeira_msg ILIKE $2`; params.push(`%${assunto}%`); }
-
-      const baseCte = `
-        WITH novos AS (
-          SELECT c.id, c.name, c.phone, c.created_at
-          FROM contacts c
-          WHERE c.organization_id = $1${dateCond}
-        ),
-        fm AS (
-          SELECT DISTINCT ON (h.session_id) h.session_id, h.message->'data'->>'content' AS primeira_msg
-          FROM n8n_chat_histories h
-          JOIN novos n ON n.phone = h.session_id
-          WHERE h.message->>'type' = 'human'
-          ORDER BY h.session_id, h.id ASC
-        )`;
-
-      const totalRes = await query(
-        `${baseCte}
-         SELECT count(*) AS total
-         FROM novos n LEFT JOIN fm ON fm.session_id = n.phone
-         WHERE TRUE${assuntoFilter}`,
+      const res = await query(
+        `WITH p AS (
+           SELECT right(rica_session_id,8) AS k, max(rica_session_id) AS fone, min(occurred_at) AS primeira_no_periodo
+           FROM deal_messages
+           WHERE organization_id = $1 AND role = 'cliente' AND rica_session_id ~ '^[0-9]{10,13}$'
+             AND occurred_at >= $2 AND occurred_at < $3
+           GROUP BY 1
+         )
+         SELECT p.fone, p.primeira_no_periodo,
+           NOT EXISTS (SELECT 1 FROM deal_messages y WHERE y.organization_id = $1
+             AND right(y.rica_session_id,8) = p.k AND y.occurred_at < $2) AS novo,
+           (SELECT left(z.content,120) FROM deal_messages z WHERE z.organization_id = $1
+             AND right(z.rica_session_id,8) = p.k AND z.role = 'cliente' AND z.occurred_at >= $2
+             ORDER BY z.occurred_at, z.id LIMIT 1) AS primeira_msg
+         FROM p
+         WHERE p.k NOT IN (SELECT right(regexp_replace(whatsapp,'[^0-9]','','g'),8) FROM users
+           WHERE organization_id = $1 AND whatsapp IS NOT NULL)${filtro}
+         ORDER BY p.primeira_no_periodo DESC`,
         params
       );
-
-      const listRes = await query(
-        `${baseCte}
-         SELECT n.name, n.phone, n.created_at::date AS chegou_em, left(fm.primeira_msg, 120) AS primeira_msg
-         FROM novos n LEFT JOIN fm ON fm.session_id = n.phone
-         WHERE TRUE${assuntoFilter}
-         ORDER BY n.created_at DESC LIMIT $${params.length + 1}`,
-        [...params, limit]
-      );
-
-      const total = Number(totalRes.rows[0]?.total || 0);
+      const rows = res.rows;
       return {
-        total,
-        assunto: assunto || '(todos)',
-        periodo: period,
-        atendimentos: listRes.rows,
-        mostrando: listRes.rows.length,
-        nota: 'Conta quem CHEGOU pelo WhatsApp (conversas), não o funil do CRM. Para o funil, use relatorio_leads.',
+        periodo: periodo.rotulo,
+        criterio: 'Pessoas que mandaram mensagem à Rica no período (horário de Brasília), novas ou que retornaram.' +
+          (termos ? ` Filtro: mencionaram ${termos.join(' / ')}.` : ''),
+        total: rows.length,
+        novos: rows.filter((r) => r.novo).length,
+        retornaram: rows.filter((r) => !r.novo).length,
+        atendimentos: rows.slice(0, limit).map((r) => ({
+          telefone: r.fone,
+          primeira_mensagem_no_periodo: r.primeira_msg,
+          novo: r.novo,
+        })),
+        mostrando: Math.min(rows.length, limit),
+        nota: 'Para números de CAMPANHA (anúncio) use relatorio_campanhas.',
       };
+    },
+  });
+
+  // ── RELATÓRIO — CAMPANHAS DE TRÁFEGO (bate com o painel de anúncios) ──────
+  const relatorio_campanhas = tool({
+    description: 'Relatório por CAMPANHA DE ANÚNCIO: quantas pessoas chegaram pela mensagem pronta do anúncio, se a Rica respondeu todas, quantas responderam, quantas foram passadas a executivo (e para quem), quantas receberam link de compra e ONDE as demais pararam. Use para qualquer pergunta sobre tráfego, anúncio, campanha, "conversas iniciadas", "quantos leads do GPS/Jornada/JDL/Mentoria chegaram", "onde os leads param", "a Rica respondeu todos?". Campanhas: ' + CAMPANHAS.map((c) => c.nome).join(', ') + '.',
+    parameters: z.object({
+      campanha: z.string().optional().describe('Nome livre da campanha ("GPS", "jornada", "JDL", "mentoria coletiva"). Omita para todas + quem chegou sem campanha.'),
+      period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().describe('Período (horário de Brasília).'),
+      start_date: z.string().optional().describe('Data inicial YYYY-MM-DD, inclusiva (sobrescreve period).'),
+      end_date: z.string().optional().describe('Data final YYYY-MM-DD, inclusiva.'),
+      listar: z.enum(['nenhum', 'todos', 'pararam', ...ETAPAS_DA_LISTA]).optional().default('nenhum')
+        .describe('Traz a lista nominal de uma etapa. "pararam" = não responderam ou conversaram e pararam.'),
+      limit: z.number().int().min(1).max(100).optional().default(50),
+    }),
+    execute: async ({ campanha, period, start_date, end_date, listar = 'nenhum', limit = 50 }) => {
+      if (!period && !start_date && !end_date) {
+        return { erro: 'Período não informado. Pergunte ao usuário qual período (ex.: este mês, mês passado, de 01/08 a 31/08) antes de consultar — não assuma.' };
+      }
+      return relatorioCampanhas({
+        orgId,
+        campanha,
+        periodo: resolverPeriodo({ period, start_date, end_date }),
+        listar,
+        limite: limit,
+      });
     },
   });
 
@@ -966,5 +983,6 @@ export function buildRicaTools(user) {
     get_user_calendar,
     relatorio_leads,
     relatorio_atendimentos,
+    relatorio_campanhas,
   };
 }

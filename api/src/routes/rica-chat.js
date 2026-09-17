@@ -5,6 +5,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { query } from '../services/database.js';
 import { buildSystemPrompt, buildCopilotPrompt } from '../services/rica-system-prompt.js';
 import { buildRicaTools } from '../services/rica-tools.js';
+import { ehPerguntaDeRelatorio } from '../services/campanhas.js';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ const HISTORY_LIMIT = 30;
 const READ_ONLY_TOOLS = [
   'search_deals', 'get_deal', 'list_pipelines', 'list_users', 'list_activities',
   'list_tasks', 'list_projects', 'get_project', 'search_atas', 'get_ata',
-  'get_team_capacity', 'get_user_calendar', 'relatorio_leads', 'relatorio_atendimentos',
+  'get_team_capacity', 'get_user_calendar', 'relatorio_leads', 'relatorio_atendimentos', 'relatorio_campanhas',
   // Ficha de produto e relatórios do setor. Sem isto na lista, o copiloto do
   // WhatsApp não enxerga a ferramenta: instruir o prompt a usá-la não adianta se
   // ela nem chega a ser oferecida ao modelo.
@@ -69,6 +70,11 @@ async function buscarContextoDoConhecimento(mensagem) {
   const citouProduto = TERMOS_DE_PRODUTO.some((t) => texto.includes(t));
   const citouAssunto = TERMOS_DE_ASSUNTO.some((t) => texto.includes(t));
   if (!citouProduto && !citouAssunto) return '';
+  // "Quantos leads da Jornada chegaram?" cita o produto, mas é pedido de NÚMERO.
+  // Com a ficha forçada abaixo ("RESPONDA AGORA com estes dados"), o modelo
+  // descrevia o curso em vez de chamar o relatório. Preço/conteúdo continuam
+  // entrando: "quanto custa" não casa com o detector de relatório.
+  if (ehPerguntaDeRelatorio(mensagem)) return '';
   // Produto nomeado dá contexto: o corte pode cair sem virar ruído.
   const piso = citouProduto ? 0.35 : 0.45;
 

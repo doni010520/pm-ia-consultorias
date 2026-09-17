@@ -80,7 +80,8 @@ describe('relatorio_leads', () => {
     expect(result.observacao).toContain('Mostrando 2 de 16')
 
     const aggSql = query.mock.calls[0][0]
-    expect(aggSql).toContain("date_trunc('month', NOW())")
+    // Período resolvido no fuso de Brasília e passado como parâmetro, não date_trunc em UTC.
+    expect(aggSql).toContain('d.created_at >= $2 AND d.created_at < $3')
     expect(aggSql).toContain('p.name ILIKE')
     expect(aggSql).toContain('d.source ILIKE')
     const aggParams = query.mock.calls[0][1]
@@ -97,8 +98,10 @@ describe('relatorio_leads', () => {
 
     await tools.relatorio_leads.execute({ period: 'mes_passado' })
 
-    const aggSql = query.mock.calls[0][0]
-    expect(aggSql).toContain("- INTERVAL '1 month'")
+    const [aggSql, aggParams] = query.mock.calls[0]
+    expect(aggSql).toContain('d.created_at >= $2 AND d.created_at < $3')
+    // começa à meia-noite de Brasília do dia 1º do mês anterior
+    expect(aggParams[1]).toMatch(/^\d{4}-\d{2}-01T03:00:00\.000Z$/)
   })
 })
 
