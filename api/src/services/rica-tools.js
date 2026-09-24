@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query, createTask, getTasks } from './database.js';
 import { relatorioCampanhas, resolverPeriodo, resolverCampanha, CAMPANHAS, ETAPAS_DA_LISTA } from './campanhas.js';
 import { blindarTools } from './blindagem.js';
+import { relatorioFunil, cardsPorEtapa, resolverCampanhaFunil } from './funil-campanhas.js';
 import {
   fetchAllConsultantsData,
   generateDayCapacities,
@@ -798,6 +799,31 @@ export function buildRicaTools(user) {
     },
   });
 
+
+  // ── RELATÓRIO — FUNIL POR CAMPANHA (força-tarefa set/2026) ─────────────────
+  const relatorio_funil = tool({
+    description: 'Funil da Rica POR CAMPANHA (Mentoria, Jornada Online, GPS) a partir de 23/09/2026: quantos leads chegaram, quantos responderam, em que ETAPA cada um está, ONDE a Rica está parando, quantos foram qualificados, quantas reuniões com o André foram marcadas, quantos foram transferidos para o André, links de compra enviados, compras, e os indicadores do playbook (taxa de resposta, diagnóstico, dor identificada, qualificação, aceite do handoff). Use para "em que etapa estão os leads", "onde a Rica está parando", "quantos leads foram aproveitados", "quantos foram pro André", "quantas reuniões marcadas", "como está o funil da Mentoria". Pode listar os leads de uma etapa específica.',
+    parameters: z.object({
+      period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().default('semana'),
+      campanha: z.string().optional().describe('mentoria, jornada/jdl ou gps. Vazio = todas.'),
+      etapa: z.enum(['novo', 'rica_iniciou', 'engajou', 'diagnostico_iniciado', 'dor_identificada', 'qualificado', 'agendamento_oferecido', 'reuniao_agendada', 'transferido', 'oferta_solicitada', 'link_enviado', 'compra_confirmada', 'nutricao', 'nao_contatar', 'perdido']).optional().describe('Filtra a LISTA de leads por etapa atual.'),
+      start_date: z.string().optional().describe('YYYY-MM-DD'),
+      end_date: z.string().optional().describe('YYYY-MM-DD'),
+      limit: z.number().int().min(1).max(100).optional().default(30),
+    }),
+    execute: async ({ period = 'semana', campanha, etapa, start_date, end_date, limit = 30 }) =>
+      relatorioFunil({ orgId, period, start_date, end_date, campanha: resolverCampanhaFunil(campanha) || undefined, etapa, limit }),
+  });
+
+  const cards_por_etapa = tool({
+    description: 'Quantos cards/leads ABERTOS existem em CADA ETAPA do Kanban do CRM, por funil (ex.: quantos no "Contato inicial", "Proposta"...). Use para "quantos leads em cada etapa do funil X". Diferente de relatorio_funil, que mostra a jornada da conversa com a Rica.',
+    parameters: z.object({
+      pipeline_name: z.string().optional().describe('Nome do funil, ex.: "GPS", "Jornada", "Treinamentos". Busca parcial.'),
+      apenas_abertos: z.boolean().optional().default(true),
+    }),
+    execute: async ({ pipeline_name, apenas_abertos = true }) => cardsPorEtapa({ orgId, pipeline_name, apenas_abertos }),
+  });
+
   // ── RELATÓRIO — ATENDIMENTOS NO WHATSAPP (conversas, não o funil) ──────────
   // Antes: só CONTATOS NOVOS do mês e assunto pela 1ª mensagem do n8n_chat_histories.
   // "Jornada" dava 0 (o anúncio diz "JDL") e quem voltou sumia. Agora conta quem
@@ -985,6 +1011,8 @@ export function buildRicaTools(user) {
     relatorio_leads,
     relatorio_atendimentos,
     relatorio_campanhas,
+    relatorio_funil,
+    cards_por_etapa,
   };
 
   // Tool que falha responde "não consegui" em vez de estourar exceção e virar

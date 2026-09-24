@@ -22,6 +22,7 @@ const READ_ONLY_TOOLS = [
   'search_deals', 'get_deal', 'list_pipelines', 'list_users', 'list_activities',
   'list_tasks', 'list_projects', 'get_project', 'search_atas', 'get_ata',
   'get_team_capacity', 'get_user_calendar', 'relatorio_leads', 'relatorio_atendimentos', 'relatorio_campanhas',
+  'relatorio_funil', 'cards_por_etapa',
   // Ficha de produto e relatórios do setor. Sem isto na lista, o copiloto do
   // WhatsApp não enxerga a ferramenta: instruir o prompt a usá-la não adianta se
   // ela nem chega a ser oferecida ao modelo.

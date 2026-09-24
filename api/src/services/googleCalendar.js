@@ -252,7 +252,66 @@ export async function deleteEvent({ userId, eventId, calendarId }) {
   }
 }
 
+/**
+ * Intervalos OCUPADOS da agenda do usuario entre timeMin e timeMax.
+ * Usado pela Rica para oferecer horarios do Andre (Mentoria). Evento marcado
+ * como "livre" (transparency=transparent) e convite recusado nao ocupam.
+ * Retorna null se o usuario nao conectou o Google (quem chama decide o fallback).
+ * LANCA em erro da API — oferecer horario sem saber a agenda e pior que nao oferecer.
+ */
+export async function listBusyIntervals({ userId, timeMin, timeMax }) {
+  const ctx = await getUserCalendar(userId);
+  if (!ctx) return null;
+
+  const busy = [];
+  let pageToken;
+  do {
+    const res = await ctx.calendar.events.list({
+      calendarId: ctx.calendarId,
+      timeMin: new Date(timeMin).toISOString(),
+      timeMax: new Date(timeMax).toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 250,
+      pageToken,
+    });
+    for (const ev of res.data.items || []) {
+      if (ev.status === 'cancelled') continue;
+      if (ev.transparency === 'transparent') continue;
+      const eu = (ev.attendees || []).find((a) => a.self);
+      if (eu && eu.responseStatus === 'declined') continue;
+      // Evento de dia inteiro vem com start.date (sem hora): ocupa o dia todo.
+      const inicio = ev.start?.dateTime || (ev.start?.date ? `${ev.start.date}T00:00:00-03:00` : null);
+      const fim = ev.end?.dateTime || (ev.end?.date ? `${ev.end.date}T00:00:00-03:00` : null);
+      if (inicio && fim) busy.push({ inicio: new Date(inicio), fim: new Date(fim) });
+    }
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+  return busy;
+}
+
+/**
+ * Cria um evento avulso (reuniao marcada pela Rica). LANCA em erro — a Rica so
+ * confirma ao lead depois que o evento existe de verdade.
+ */
+export async function createCalendarEvent({ userId, summary, description, inicio, fim, timeZone = 'America/Recife' }) {
+  const ctx = await getUserCalendar(userId);
+  if (!ctx) throw new Error('Agenda do Google nao conectada para este usuario');
+  const res = await ctx.calendar.events.insert({
+    calendarId: ctx.calendarId,
+    requestBody: {
+      summary,
+      description,
+      start: { dateTime: new Date(inicio).toISOString(), timeZone },
+      end: { dateTime: new Date(fim).toISOString(), timeZone },
+      reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }, { method: 'popup', minutes: 5 }] },
+    },
+  });
+  return { eventId: res.data.id, calendarId: ctx.calendarId, htmlLink: res.data.htmlLink };
+}
+
 export default {
   isGoogleConfigured, getAppUrl, getAuthUrl, exchangeCode, saveUserTokens,
   getUserConnection, disconnectUser, createEventForActivity, updateEventForActivity, deleteEvent,
+  listBusyIntervals, createCalendarEvent,
 };
