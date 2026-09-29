@@ -294,16 +294,19 @@ export async function listBusyIntervals({ userId, timeMin, timeMax }) {
  * Cria um evento avulso (reuniao marcada pela Rica). LANCA em erro — a Rica so
  * confirma ao lead depois que o evento existe de verdade.
  */
-export async function createCalendarEvent({ userId, summary, description, inicio, fim, timeZone = 'America/Recife' }) {
+export async function createCalendarEvent({ userId, summary, description, inicio, fim, timeZone = 'America/Recife', convidadoEmail }) {
   const ctx = await getUserCalendar(userId);
   if (!ctx) throw new Error('Agenda do Google nao conectada para este usuario');
   const res = await ctx.calendar.events.insert({
     calendarId: ctx.calendarId,
+    // Com convidado, o Google manda ao lead o convite/confirmacao nativa (GPS, secao 9).
+    sendUpdates: convidadoEmail ? 'all' : 'none',
     requestBody: {
       summary,
       description,
       start: { dateTime: new Date(inicio).toISOString(), timeZone },
       end: { dateTime: new Date(fim).toISOString(), timeZone },
+      ...(convidadoEmail ? { attendees: [{ email: convidadoEmail }] } : {}),
       reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }, { method: 'popup', minutes: 5 }] },
     },
   });

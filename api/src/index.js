@@ -17,6 +17,7 @@ import capacityCalendarRouter from './routes/capacity-calendar.js';
 import crmRouter from './routes/crm.js';
 import ricaChatRouter from './routes/rica-chat.js';
 import ricaAgendaRouter from './routes/rica-agenda.js';
+import agendarPublicoRouter from './routes/agendar-publico.js';
 import integrationsRouter from './routes/integrations.js';
 
 // Middleware
@@ -69,6 +70,8 @@ app.post('/api/client-error', (req, res) => {
 // Rotas públicas
 app.use('/api/auth', authRouter);
 app.use('/api/invites', invitesRouter);
+// Página pública de agendamento com o André (link enviado pela Rica; token = autorização)
+app.use('/api/agendar', agendarPublicoRouter);
 
 // Integrações (auth aplicada por-rota; callback OAuth é público)
 app.use('/api/integrations', integrationsRouter);

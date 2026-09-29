@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { query, createTask, getTasks } from './database.js';
 import { relatorioCampanhas, resolverPeriodo, resolverCampanha, CAMPANHAS, ETAPAS_DA_LISTA } from './campanhas.js';
 import { blindarTools } from './blindagem.js';
-import { relatorioFunil, cardsPorEtapa, resolverCampanhaFunil } from './funil-campanhas.js';
+import { relatorioFunil, cardsPorEtapa, resolverCampanhaFunil, acharLeadDoFunil, atualizarReuniao } from './funil-campanhas.js';
+import { criarLinkAgenda } from './agenda-links.js';
 import {
   fetchAllConsultantsData,
   generateDayCapacities,
@@ -806,7 +807,7 @@ export function buildRicaTools(user) {
     parameters: z.object({
       period: z.enum(['hoje', 'ontem', 'semana', 'ultimos_7_dias', 'ultimos_30_dias', 'mes', 'mes_passado', 'tudo']).optional().default('semana'),
       campanha: z.string().optional().describe('mentoria, jornada/jdl ou gps. Vazio = todas.'),
-      etapa: z.enum(['novo', 'rica_iniciou', 'engajou', 'diagnostico_iniciado', 'dor_identificada', 'qualificado', 'agendamento_oferecido', 'reuniao_agendada', 'transferido', 'oferta_solicitada', 'link_enviado', 'compra_confirmada', 'nutricao', 'nao_contatar', 'perdido']).optional().describe('Filtra a LISTA de leads por etapa atual.'),
+      etapa: z.enum(['novo', 'rica_iniciou', 'engajou', 'diagnostico_iniciado', 'dor_identificada', 'qualificado', 'agendamento_oferecido', 'link_agenda_enviado', 'reuniao_agendada', 'transferido', 'oferta_solicitada', 'link_enviado', 'compra_confirmada', 'nutricao', 'nao_contatar', 'perdido', 'confirmado_andre', 'reuniao_realizada', 'no_show', 'remarcado', 'vendido']).optional().describe('Filtra a LISTA de leads por etapa atual.'),
       start_date: z.string().optional().describe('YYYY-MM-DD'),
       end_date: z.string().optional().describe('YYYY-MM-DD'),
       limit: z.number().int().min(1).max(100).optional().default(30),
@@ -822,6 +823,57 @@ export function buildRicaTools(user) {
       apenas_abertos: z.boolean().optional().default(true),
     }),
     execute: async ({ pipeline_name, apenas_abertos = true }) => cardsPorEtapa({ orgId, pipeline_name, apenas_abertos }),
+  });
+
+  // ── PÓS-AGENDAMENTO GPS: o André informa o andamento e pede link de remarcação ──
+  // Manual GPS, seções 11 a 13: depois do agendamento, confirmação, remarcação,
+  // no-show e resultado são do André. Ele conta à Rica pelo WhatsApp e isso vira
+  // dado do funil (seções 18 e 19).
+  const atualizar_reuniao_lead = tool({
+    description: 'Registra o ANDAMENTO da reunião de um lead que foi entregue ao André: "confirmado" (o cliente confirmou a reunião), "realizada" (a reunião aconteceu), "no_show" (o cliente não compareceu), "vendido" (fechou), "nao_vendido" (não fechou; peça/registre o motivo). Use quando alguém do time disser, por exemplo, "o João confirmou", "a reunião com a Padaria X aconteceu", "fulano não apareceu", "vendi pro 81999...", "não fechou com a Maria, achou caro". Identifique o lead pelo telefone (preferível) ou pelo nome/padaria. Execute direto, sem pedir confirmação.',
+    parameters: z.object({
+      telefone: z.string().optional().describe('Telefone do lead com DDD'),
+      nome: z.string().optional().describe('Nome do lead ou da padaria, se não houver telefone'),
+      status: z.enum(['confirmado', 'realizada', 'no_show', 'vendido', 'nao_vendido']),
+      motivo: z.string().optional().describe('Motivo da perda quando nao_vendido (preço, tempo, sócio...)'),
+    }),
+    execute: async ({ telefone, nome, status, motivo }) =>
+      atualizarReuniao({ orgId, telefone, nome, status, motivo, autor: user.name }),
+  });
+
+  const link_agenda_lead = tool({
+    description: 'Gera um LINK NOVO da agenda do André para um lead escolher outro horário (remarcação, no-show, "não consigo nesse horário"). Mostra só horários livres de hoje e do próximo dia útil. Devolve a URL para o André mandar ao cliente. Identifique o lead pelo telefone (preferível) ou pelo nome/padaria.',
+    parameters: z.object({
+      telefone: z.string().optional().describe('Telefone do lead com DDD'),
+      nome: z.string().optional().describe('Nome do lead ou da padaria, se não houver telefone'),
+    }),
+    execute: async ({ telefone, nome }) => {
+      const achado = await acharLeadDoFunil({ orgId, telefone, nome });
+      if (!achado.lead) return { ok: false, ...achado };
+      const l = achado.lead;
+      // Agenda de quem pediu (se o Google estiver conectado); senão, a do último link do lead.
+      const g = await query(
+        `SELECT 1 FROM user_google_tokens WHERE user_id = $1 AND refresh_token IS NOT NULL AND sync_enabled`,
+        [userId]
+      );
+      let executivoEmail = g.rows.length ? user.email : null;
+      if (!executivoEmail) {
+        const ult = await query(
+          `SELECT executivo_email FROM rica_agenda_links WHERE organization_id = $1 AND phone = $2 ORDER BY created_at DESC LIMIT 1`,
+          [orgId, l.phone]
+        );
+        executivoEmail = ult.rows[0]?.executivo_email || null;
+      }
+      if (!executivoEmail) return { ok: false, erro: 'Sua agenda Google não está conectada no CRM (Agenda → Conectar), então não consigo gerar o link.' };
+      const link = await criarLinkAgenda({ orgId, executivoEmail, phone: l.phone, campanha: l.campanha, dealId: l.deal_id, criadoPor: 'andre' });
+      return {
+        ok: true,
+        lead: l.nome_lead || l.phone,
+        telefone: l.phone,
+        url: link.url,
+        instrucao: 'Devolva a URL inteira para o André copiar e mandar ao cliente. Quando o cliente escolher o horário, a reunião entra na agenda e a Rica avisa o André.',
+      };
+    },
   });
 
   // ── RELATÓRIO — ATENDIMENTOS NO WHATSAPP (conversas, não o funil) ──────────
@@ -1013,6 +1065,8 @@ export function buildRicaTools(user) {
     relatorio_campanhas,
     relatorio_funil,
     cards_por_etapa,
+    atualizar_reuniao_lead,
+    link_agenda_lead,
   };
 
   // Tool que falha responde "não consegui" em vez de estourar exceção e virar

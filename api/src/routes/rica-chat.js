@@ -23,6 +23,9 @@ const READ_ONLY_TOOLS = [
   'list_tasks', 'list_projects', 'get_project', 'search_atas', 'get_ata',
   'get_team_capacity', 'get_user_calendar', 'relatorio_leads', 'relatorio_atendimentos', 'relatorio_campanhas',
   'relatorio_funil', 'cards_por_etapa',
+  // Escrita restrita ao funil da Rica: o André informa o andamento da reunião e
+  // pede link de remarcação (manual GPS, seções 11 a 13).
+  'atualizar_reuniao_lead', 'link_agenda_lead',
   // Ficha de produto e relatórios do setor. Sem isto na lista, o copiloto do
   // WhatsApp não enxerga a ferramenta: instruir o prompt a usá-la não adianta se
   // ela nem chega a ser oferecida ao modelo.
