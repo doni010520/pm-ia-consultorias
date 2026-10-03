@@ -9,6 +9,7 @@ import Login from '@/pages/Login'
 import InviteAccept from '@/pages/InviteAccept'
 import Dashboard from '@/pages/Dashboard'
 import Overview from '@/pages/Overview'
+import PainelComercial from '@/pages/PainelComercial'
 import Projects from '@/pages/Projects'
 import ProjectDetail from '@/pages/ProjectDetail'
 import Tasks from '@/pages/Tasks'
@@ -71,6 +72,7 @@ function ProtectedLayout() {
           <ErrorBoundary key={location.pathname} label={location.pathname}>
             <Routes>
             <Route path="/" element={<Overview />} />
+            <Route path="/comercial" element={<PainelComercial />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:id" element={<ProjectDetail />} />

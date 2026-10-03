@@ -18,6 +18,7 @@ import {
   Building2,
   FlaskConical,
   MessagesSquare,
+  PieChart,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -29,6 +30,7 @@ const navGroups = [
     label: 'Comercial',
     items: [
       { to: '/', icon: Home, label: 'Visão Geral' },
+      { to: '/comercial', icon: PieChart, label: 'Painel Comercial' },
       { to: '/crm', icon: Target, label: 'CRM' },
       { to: '/crm/empresas', icon: Building2, label: 'Empresas' },
       { to: '/crm/agenda', icon: CalendarDays, label: 'Agenda' },

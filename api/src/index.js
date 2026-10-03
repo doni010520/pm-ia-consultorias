@@ -19,6 +19,8 @@ import ricaChatRouter from './routes/rica-chat.js';
 import ricaAgendaRouter from './routes/rica-agenda.js';
 import agendarPublicoRouter from './routes/agendar-publico.js';
 import integrationsRouter from './routes/integrations.js';
+import comercialRouter from './routes/comercial.js';
+import { iniciarSyncRd } from './services/rdStation.js';
 
 // Middleware
 import { requireAuth, avisarSeSemServiceKey } from './middleware/auth.js';
@@ -85,6 +87,7 @@ app.use('/api/alerts', requireAuth, alertsRouter);
 app.use('/api/allocations', requireAuth, allocationsRouter);
 app.use('/api/capacity', requireAuth, capacityCalendarRouter);
 app.use('/api/crm', requireAuth, crmRouter);
+app.use('/api/comercial', requireAuth, comercialRouter);
 app.use('/api/rica/chat', requireAuth, ricaChatRouter);
 app.use('/api/rica/agenda', requireAuth, ricaAgendaRouter);
 
@@ -124,6 +127,7 @@ async function start() {
     initEmail();
     initWhatsApp();
     initScheduler();
+    iniciarSyncRd();
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);

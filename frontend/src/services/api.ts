@@ -690,6 +690,56 @@ export const integrationsApi = {
   },
 }
 
+// Painel Comercial (RD Station + nosso CRM)
+export type FontePainel = 'rd' | 'crm' | 'consolidado'
+export interface PainelFiltros { mes: string; executivo?: string; produto?: string; funil?: string; origem?: string; regiao?: string }
+export interface StatusRd {
+  dono_token: string | null; last_sync_at: string | null; last_sync_status: string | null
+  last_sync_error: string | null; deals_sincronizados: number | null
+}
+export interface PainelComercialData {
+  fonte: FontePainel
+  rd: StatusRd | null
+  filtros: PainelFiltros
+  kpis: {
+    meta: number | null; vendido: number; vendidoAnt: number; atingimento: number | null; atingimentoAnt: number | null
+    gap: number | null; pipeline: number; qualificado: number; ponderado: number; commit: number
+    cobertura: number | null; abertos: number; ganhosMes: number
+  }
+  metaRealizadoForecast: { meta: number | null; vendido: number; projecao: number }
+  funil: { etapa: string; negocios: number; valor: number; chance: number }[]
+  forecast: { dias: number; valor: number }[]
+  porProduto: { nome: string; valor: number }[]
+  porExecutivo: { nome: string; valor: number }[]
+  executivos: {
+    nome: string; meta: number | null; vendido: number; gap: number | null; pipeline: number
+    forecast: number; cobertura: number | null; abertos: number; parados: number
+  }[]
+  canais: { canal: string; clientes: number; receita: number; ticket: number | null; conversao: number | null }[]
+  canaisTotal: { clientes: number; receita: number; ticket: number | null; conversao: number | null }
+  saude: { chave: string; nome: string; valor: number | null; formato: '%' | 'x'; nivel: 'verde' | 'amarelo' | 'vermelho' | 'sem_dado'; regra: string }[]
+  qualidade: { abertosSemValor: number; abertosSemProduto: number }
+  opcoes: { executivos: string[]; produtos: string[]; funis: string[]; origens: string[]; regioes: string[] }
+}
+
+export const comercialApi = {
+  painel: (fonte: FontePainel, f: PainelFiltros) => {
+    const qs = new URLSearchParams({ fonte, ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)) })
+    return request<PainelComercialData>(`/api/comercial/painel?${qs}`)
+  },
+  metas: (mes: string) =>
+    request<{ mes: string; metas: { mes: string; executivo: string | null; valor: number }[] }>(`/api/comercial/metas?mes=${mes}`),
+  salvarMetas: (mes: string, metas: { executivo: string | null; valor: number }[]) =>
+    request<{ mes: string }>(`/api/comercial/metas`, { method: 'PUT', body: JSON.stringify({ mes, metas }) }),
+  rd: {
+    status: () => request<StatusRd & { conectado: boolean }>(`/api/comercial/rd`),
+    conectar: (token: string) =>
+      request<{ conectado: boolean; deals: number; dono: { nome: string; email: string; admin: boolean }; aviso: string | null }>(
+        `/api/comercial/rd`, { method: 'PUT', body: JSON.stringify({ token }) }),
+    sincronizar: () => request<{ deals: number }>(`/api/comercial/rd/sync`, { method: 'POST' }),
+  },
+}
+
 // Transcriptions / Atas
 export const atasApi = {
   list: (filters?: { project_id?: string }) =>
