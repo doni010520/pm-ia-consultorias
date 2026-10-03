@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import Login from '@/pages/Login'
+import Entrar from '@/pages/Entrar'
 import InviteAccept from '@/pages/InviteAccept'
 import Dashboard from '@/pages/Dashboard'
 import Overview from '@/pages/Overview'
@@ -111,6 +112,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/entrar" element={<Entrar />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/invite/:token" element={<InviteAccept />} />
