@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/database.js';
 import { requireRole } from '../middleware/auth.js';
-import { carregarFonte, carregarMetas, calcularPainel, mesAnterior } from '../services/painelComercial.js';
+import { carregarFonte, carregarMetas, calcularPainel, mesAnterior, fotoDoMesAnterior } from '../services/painelComercial.js';
 import { verificarToken, sincronizarRd } from '../services/rdStation.js';
 
 const router = Router();
@@ -20,7 +20,10 @@ router.get('/painel', gestao, async (req, res, next) => {
     const filtros = { mes };
     for (const k of ['executivo', 'produto', 'funil', 'origem', 'regiao']) if (req.query[k]) filtros[k] = String(req.query[k]);
 
-    const [linhas, metas, rd] = await Promise.all([
+    // Comparação de pipeline/forecast/commit só existe para o mês corrente sem
+    // filtros: é a foto diária gravada há ~30 dias (ver gravarSnapshots).
+    const semFiltro = Object.keys(filtros).length === 1 && mes === new Date().toISOString().slice(0, 7);
+    const [linhas, metas, rd, fotoAnterior] = await Promise.all([
       carregarFonte(org, fonte),
       carregarMetas(org, [mes, mesAnterior(mes)]),
       query(
@@ -28,8 +31,9 @@ router.get('/painel', gestao, async (req, res, next) => {
            FROM integracao_rd WHERE organization_id = $1`,
         [org],
       ).then((r) => r.rows[0] || null),
+      semFiltro ? fotoDoMesAnterior(org, fonte).catch(() => null) : null,
     ]);
-    res.json({ fonte, rd, ...calcularPainel(linhas, metas, filtros) });
+    res.json({ fonte, rd, fotoAnterior, ...calcularPainel(linhas, metas, filtros) });
   } catch (err) {
     next(err);
   }

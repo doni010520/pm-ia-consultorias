@@ -1,295 +1,139 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
-  Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import {
-  Target, DollarSign, Percent, TrendingDown, Filter, BadgeCheck, LineChart, ShieldCheck, Layers,
-  ArrowUp, ArrowDown, RefreshCw, Settings2, Flag, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Info,
+  Target, DollarSign, PieChart as IconePizza, TrendingUp, Filter, Users, LineChart, ShieldCheck, Shield,
+  ArrowUp, ArrowDown, Calendar, User, Package, Globe, MapPin, GitBranch, Flag, Settings2, Info, ChevronDown,
+  UserRound, Search, ClipboardList, FileText, Handshake, CircleCheck, Layers,
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { Button } from '@/components/ui/button'
+import { JanelaMetas, JanelaRd } from '@/components/comercial/JanelasPainel'
+import { dinheiro, valorCard, mil, pct, vezes, ultimosMeses, haQuanto } from '@/components/comercial/formato'
 import { useAuthStore } from '@/stores/authStore'
 import { comercialApi, type FontePainel, type PainelComercialData, type PainelFiltros } from '@/services/api'
 import { cn } from '@/lib/utils'
 
-// ─── formatação ──────────────────────────────────────────────────────────────
+// ─── cores (iguais ao modelo aprovado pela Maria) ────────────────────────────
 
-const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-const dinheiro = (v: number | null | undefined) => (v === null || v === undefined ? '—' : brl.format(v))
-function compacto(v: number | null | undefined) {
-  if (v === null || v === undefined) return '—'
-  const a = Math.abs(v)
-  if (a >= 1_000_000) return `R$ ${(v / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi`
-  if (a >= 1_000) return `R$ ${(v / 1_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`
-  return brl.format(v)
+const C = {
+  azul: '#1d4ed8',
+  verde: '#16a34a',
+  teal: '#0d9488',
+  tealClaro: '#0e9aa7',
+  laranja: '#f97316',
+  roxo: '#7c3aed',
+  marinho: '#1e3a8a',
+  cinza: '#94a3b8',
+  grade: '#e8edf3',
 }
-const pct = (v: number | null | undefined, casas = 1) =>
-  v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('pt-BR', { maximumFractionDigits: casas })}%`
-const vezes = (v: number | null | undefined) =>
-  v === null || v === undefined ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}x`
-
-const NOME_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-function ultimosMeses(n: number) {
-  const hoje = new Date()
-  return Array.from({ length: n }, (_, i) => {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
-    const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    return { valor: v, rotulo: `${NOME_MES[d.getMonth()]}/${d.getFullYear()}` }
-  })
-}
-function haQuanto(iso: string | null) {
-  if (!iso) return 'nunca'
-  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (min < 1) return 'agora'
-  if (min < 60) return `há ${min} min`
-  const h = Math.round(min / 60)
-  return h < 24 ? `há ${h} h` : `há ${Math.round(h / 24)} dias`
-}
-
-// Uma matiz (azul) para magnitude; etapas do funil em rampa ordinal clara → escura.
-const AZUL = '#2a78d6'
-const AZUL_CLARO = '#86b6ef'
-const NEUTRO = '#94a3b8'
-const RAMPA_FUNIL = ['#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#1c5cab']
+// Rosca de produtos: ordem validada (verificador de daltonismo da skill dataviz);
+// "Outros" sempre em cinza.
+const CORES_PRODUTO = ['#1d4ed8', '#0d9488', '#7c3aed', '#0ea5e9', '#d99a00']
+// Funil: azul → verde, como no modelo.
+const CORES_FUNIL = ['#1d4ed8', '#1f6fd6', '#1490c4', '#0f9fa8', '#12a383', '#16a34a']
+const ICONES_FUNIL = [UserRound, Search, ClipboardList, FileText, Handshake, CircleCheck]
 const EIXO = { fontSize: 11, fill: '#64748b' }
 
 // ─── peças ───────────────────────────────────────────────────────────────────
 
-function Variacao({ atual, anterior, modo = 'pct' }: { atual: number | null; anterior: number | null; modo?: 'pct' | 'pp' }) {
-  if (atual === null || anterior === null || (modo === 'pct' && !anterior)) {
-    return <span className="text-xs text-muted-foreground">sem comparação</span>
-  }
-  const delta = modo === 'pct' ? (atual - anterior) / anterior : (atual - anterior) * 100
-  const sobe = delta >= 0
-  const Icone = sobe ? ArrowUp : ArrowDown
+function Caixa({ titulo, extra, children, className }: { titulo?: string; extra?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+    <section className={cn('rounded-xl border border-slate-200 bg-white p-4 shadow-sm', className)}>
+      {titulo && (
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <h3 className="text-[15px] font-bold text-slate-900">{titulo}</h3>
+          {extra && <span className="text-xs text-slate-500">{extra}</span>}
+        </div>
+      )}
+      {children}
+    </section>
+  )
+}
+
+function Variacao({ atual, anterior, modo = 'pct', inverso = false }: { atual: number | null | undefined; anterior: number | null | undefined; modo?: 'pct' | 'pp' | 'x'; inverso?: boolean }) {
+  const semBase = atual === null || atual === undefined || anterior === null || anterior === undefined || (modo === 'pct' && !anterior)
+  if (semBase) return <span className="text-[10px] text-slate-400 2xl:text-[11px]">vs mês anterior —</span>
+  const delta = modo === 'pct' ? (atual - anterior) / Math.abs(anterior) : modo === 'pp' ? (atual - anterior) * 100 : atual - anterior
+  const sobe = delta >= 0
+  const Seta = sobe ? ArrowUp : ArrowDown
+  const texto = modo === 'pct'
+    ? `${(Math.abs(delta) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+    : modo === 'pp' ? `${Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} p.p.` : `${Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}x`
+  return (
+    <span className="inline-flex flex-wrap items-center justify-center gap-x-1 text-[10px] text-slate-500 2xl:text-[11px]">
       vs mês anterior
-      <span className={cn('inline-flex items-center font-medium', sobe ? 'text-emerald-700' : 'text-red-700')}>
-        <Icone className="h-3 w-3" />
-        {modo === 'pct' ? pct(Math.abs(delta)) : `${Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} p.p.`}
+      <span className={cn('inline-flex items-center font-semibold', sobe !== inverso ? 'text-green-700' : 'text-red-600')}>
+        <Seta className="h-3 w-3" strokeWidth={3} />{texto}
       </span>
     </span>
   )
 }
 
-function Kpi({ icone: Icone, titulo, valor, rodape, dica }: {
-  icone: typeof Target; titulo: string; valor: string; rodape?: React.ReactNode; dica?: string
+function Kpi({ icone: Icone, cor, titulo, valor, rodape, dica }: {
+  icone: typeof Target; cor: string; titulo: string; valor: string; rodape: React.ReactNode; dica?: string
 }) {
   return (
-    <Card title={dica}>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-            <Icone className="h-4 w-4" />
-          </span>
-          {titulo}
-        </div>
-        <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{valor}</div>
-        <div className="mt-1 min-h-4">{rodape}</div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function Bloco({ titulo, nota, children, className }: { titulo: string; nota?: string; children: React.ReactNode; className?: string }) {
-  return (
-    <Card className={className}>
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-800">{titulo}</h3>
-          {nota && <span className="text-xs text-muted-foreground">{nota}</span>}
-        </div>
-        {children}
-      </CardContent>
-    </Card>
-  )
-}
-
-function DicaGrafico({ active, payload, label, formato = compacto }: {
-  active?: boolean; payload?: { value: number; payload: Record<string, unknown> }[]; label?: string; formato?: (v: number) => string
-}) {
-  if (!active || !payload?.length) return null
-  const p = payload[0]
-  const negocios = p.payload.negocios as number | undefined
-  return (
-    <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-md">
-      <div className="font-medium text-slate-800">{label ?? (p.payload.nome as string)}</div>
-      <div className="text-slate-600">{formato(p.value)}</div>
-      {negocios !== undefined && <div className="text-slate-500">{negocios} negócios</div>}
+    <div className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm 2xl:p-3" title={dica}>
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white 2xl:h-8 2xl:w-8" style={{ background: cor }}>
+          <Icone className="h-3.5 w-3.5 2xl:h-4 2xl:w-4" strokeWidth={2.5} />
+        </span>
+        <span className="text-[12px] font-semibold leading-tight text-slate-800 2xl:text-[13px]">{titulo}</span>
+      </div>
+      <div className="mt-2 truncate text-center text-[22px] font-bold tabular-nums xl:text-[17px] 2xl:text-[22px]" style={{ color: cor }} title={valor}>{valor}</div>
+      <div className="mt-1 text-center">{rodape}</div>
     </div>
   )
 }
 
-function Seletor({ rotulo, valor, onChange, opcoes, todos = 'Todos' }: {
-  rotulo: string; valor: string; onChange: (v: string) => void; opcoes: { valor: string; rotulo: string }[]; todos?: string | null
+function Filtro({ icone: Icone, rotulo, valor, onChange, opcoes, prefixo }: {
+  icone: typeof Calendar; rotulo: string; valor: string; onChange: (v: string) => void
+  opcoes: { valor: string; rotulo: string }[]; prefixo?: boolean
 }) {
   return (
-    <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-600">
-      {rotulo}
+    <label className="relative flex h-10 min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white pl-3 pr-8 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 2xl:h-11">
+      <Icone className="h-[18px] w-[18px] shrink-0 text-slate-600" />
+      {prefixo && <span className="shrink-0 text-sm text-slate-700">{rotulo}:</span>}
       <select
+        aria-label={rotulo}
         value={valor}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-full rounded-md border border-input bg-white px-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className={cn('w-full min-w-0 cursor-pointer appearance-none truncate bg-transparent text-sm focus:outline-none',
+          prefixo ? 'font-semibold text-blue-700' : valor ? 'font-semibold text-slate-900' : 'text-slate-700')}
       >
-        {todos !== null && <option value="">{todos}</option>}
+        {!prefixo && <option value="">{rotulo}</option>}
         {opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
       </select>
+      <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500" />
     </label>
   )
 }
 
+function Dica({ active, payload, label, fmt = dinheiro }: {
+  active?: boolean; payload?: { value: number; payload: Record<string, unknown> }[]; label?: string; fmt?: (v: number) => string
+}) {
+  if (!active || !payload?.length) return null
+  const p = payload[0]
+  const extra = p.payload.extra as string | undefined
+  return (
+    <div className="rounded-md border bg-white px-3 py-2 text-xs shadow-md">
+      <div className="font-semibold text-slate-800">{label ?? (p.payload.nome as string)}</div>
+      <div className="text-slate-700">{fmt(p.value)}</div>
+      {extra && <div className="text-slate-500">{extra}</div>}
+    </div>
+  )
+}
+
 const NIVEL = {
-  verde: { icone: CheckCircle2, cor: 'text-emerald-700', rotulo: 'Verde' },
-  amarelo: { icone: AlertTriangle, cor: 'text-amber-700', rotulo: 'Amarelo' },
-  vermelho: { icone: XCircle, cor: 'text-red-700', rotulo: 'Vermelho' },
-  sem_dado: { icone: MinusCircle, cor: 'text-slate-500', rotulo: 'Sem dado' },
+  verde: { cor: '#16a34a', rotulo: 'Verde' },
+  amarelo: { cor: '#f59e0b', rotulo: 'Amarelo' },
+  vermelho: { cor: '#dc2626', rotulo: 'Vermelho' },
+  sem_dado: { cor: '#94a3b8', rotulo: 'Sem dado' },
 } as const
-
-// ─── janelas: metas e RD ─────────────────────────────────────────────────────
-
-type MetaSalva = { executivo: string | null; valor: number }
-
-function JanelaMetas({ aberta, onClose, mes, executivos }: { aberta: boolean; onClose: () => void; mes: string; executivos: string[] }) {
-  const { data } = useQuery({ queryKey: ['comercial-metas', mes], queryFn: () => comercialApi.metas(mes), enabled: aberta })
-  const rotuloMes = ultimosMeses(24).find((m) => m.valor === mes)?.rotulo ?? mes
-  return (
-    <Dialog open={aberta} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Metas de {rotuloMes}</DialogTitle>
-          <DialogDescription>
-            A meta total vale para o painel sem filtro. Sem meta total, o painel usa a soma das metas dos executivos.
-          </DialogDescription>
-        </DialogHeader>
-        {data
-          ? <FormMetas key={mes} mes={mes} salvas={data.metas} executivos={executivos} onClose={onClose} />
-          : <div className="flex justify-center py-8"><LoadingSpinner /></div>}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function FormMetas({ mes, salvas, executivos, onClose }: { mes: string; salvas: MetaSalva[]; executivos: string[]; onClose: () => void }) {
-  const qc = useQueryClient()
-  const [total, setTotal] = useState(String(salvas.find((m) => !m.executivo)?.valor ?? ''))
-  const [porExec, setPorExec] = useState<Record<string, string>>(
-    () => Object.fromEntries(salvas.filter((m) => m.executivo).map((m) => [m.executivo as string, String(m.valor)])),
-  )
-
-  const nomes = useMemo(() => [...new Set([...executivos, ...Object.keys(porExec)])].sort(), [executivos, porExec])
-  const somaExec = Object.values(porExec).reduce((t, v) => t + (Number(v) || 0), 0)
-  const salvar = useMutation({
-    mutationFn: () => comercialApi.salvarMetas(mes, [
-      { executivo: null, valor: Number(total) || 0 },
-      ...Object.entries(porExec).map(([executivo, v]) => ({ executivo, valor: Number(v) || 0 })),
-    ]),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['painel-comercial'] })
-      qc.invalidateQueries({ queryKey: ['comercial-metas', mes] })
-      onClose()
-    },
-  })
-
-  return (
-    <>
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          Meta total da empresa (R$)
-          <Input type="number" min={0} value={total} onChange={(e) => setTotal(e.target.value)} placeholder="Ex.: 300000" />
-        </label>
-        <div className="mt-2 space-y-2">
-          <div className="flex items-baseline justify-between text-sm font-medium">
-            <span>Por executivo (R$)</span>
-            <span className="text-xs text-muted-foreground">soma: {dinheiro(somaExec)}</span>
-          </div>
-          {nomes.map((n) => (
-            <div key={n} className="flex items-center gap-2">
-              <span className="w-48 truncate text-sm text-slate-700" title={n}>{n}</span>
-              <Input
-                type="number" min={0} value={porExec[n] ?? ''} placeholder="sem meta"
-                onChange={(e) => setPorExec((p) => ({ ...p, [n]: e.target.value }))}
-              />
-            </div>
-          ))}
-        </div>
-        {salvar.error && <p className="text-sm text-red-700">{(salvar.error as Error).message}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>{salvar.isPending ? 'Salvando…' : 'Salvar metas'}</Button>
-        </div>
-    </>
-  )
-}
-
-function JanelaRd({ aberta, onClose, admin }: { aberta: boolean; onClose: () => void; admin: boolean }) {
-  const qc = useQueryClient()
-  const { data: status } = useQuery({ queryKey: ['comercial-rd'], queryFn: comercialApi.rd.status, enabled: aberta })
-  const [token, setToken] = useState('')
-  const conectar = useMutation({
-    mutationFn: () => comercialApi.rd.conectar(token.trim()),
-    onSuccess: () => { setToken(''); qc.invalidateQueries({ queryKey: ['comercial-rd'] }); qc.invalidateQueries({ queryKey: ['painel-comercial'] }) },
-  })
-  const sync = useMutation({
-    mutationFn: comercialApi.rd.sincronizar,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['comercial-rd'] }); qc.invalidateQueries({ queryKey: ['painel-comercial'] }) },
-  })
-
-  return (
-    <Dialog open={aberta} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Conexão com o RD Station CRM</DialogTitle>
-          <DialogDescription>
-            O painel copia as negociações do RD a cada 30 minutos. O token precisa ser de um usuário com visibilidade
-            Geral em Negociações, senão só aparecem os negócios dele.
-          </DialogDescription>
-        </DialogHeader>
-        {status?.conectado ? (
-          <div className="rounded-md border bg-slate-50 p-3 text-sm">
-            <div><span className="text-muted-foreground">Token de:</span> {status.dono_token}</div>
-            <div>
-              <span className="text-muted-foreground">Última sincronização:</span> {haQuanto(status.last_sync_at)}
-              {status.last_sync_status === 'ok' && ` · ${status.deals_sincronizados} negociações`}
-            </div>
-            {status.last_sync_status === 'erro' && <div className="mt-1 text-red-700">Erro: {status.last_sync_error}</div>}
-            <Button size="sm" variant="outline" className="mt-2" onClick={() => sync.mutate()} disabled={sync.isPending}>
-              <RefreshCw className={cn('mr-1 h-3.5 w-3.5', sync.isPending && 'animate-spin')} />
-              {sync.isPending ? 'Sincronizando…' : 'Sincronizar agora'}
-            </Button>
-            {sync.error && <p className="mt-1 text-red-700">{(sync.error as Error).message}</p>}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Ainda não conectado.</p>
-        )}
-        {admin ? (
-          <div className="space-y-2">
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              {status?.conectado ? 'Trocar token' : 'Token da instância'}
-              <Input value={token} onChange={(e) => setToken(e.target.value)} placeholder="No RD: seu nome → Perfil → Token da instância" />
-            </label>
-            {conectar.error && <p className="text-sm text-red-700">{(conectar.error as Error).message}</p>}
-            {conectar.data?.aviso && <p className="text-sm text-amber-700">{conectar.data.aviso}</p>}
-            {conectar.data && !conectar.data.aviso && (
-              <p className="text-sm text-emerald-700">Conectado: {conectar.data.deals} negociações sincronizadas.</p>
-            )}
-            <div className="flex justify-end">
-              <Button onClick={() => conectar.mutate()} disabled={!token.trim() || conectar.isPending}>
-                {conectar.isPending ? 'Conectando e sincronizando…' : 'Conectar'}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Só um administrador pode trocar o token.</p>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 // ─── página ──────────────────────────────────────────────────────────────────
 
@@ -319,47 +163,43 @@ export default function PainelComercial() {
   if (!podeVer) {
     return <PageContainer><p className="py-24 text-center text-muted-foreground">O Painel Comercial é visível para gestores e administradores.</p></PageContainer>
   }
+  const op = (xs: string[] | undefined) => (xs ?? []).map((v) => ({ valor: v, rotulo: v }))
 
   return (
     <PageContainer>
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* Cabeçalho */}
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Painel Comercial</h1>
-            <p className="text-sm text-muted-foreground">Meta, pipeline, forecast, performance e canais de aquisição</p>
+            <h1 className="text-[28px] font-bold leading-tight text-[#0f1f4b]">Dashboard Comercial | CRM de Consultoria</h1>
+            <p className="text-[15px] text-slate-500">Visão executiva para Pipeline, Forecast, Performance e Canais de Aquisição</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-md border bg-white p-0.5" role="tablist" aria-label="Fonte dos dados">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm" role="tablist" aria-label="Fonte dos dados">
               {FONTES.map((f) => (
                 <button
-                  key={f.valor}
-                  role="tab"
-                  aria-selected={fonte === f.valor}
-                  onClick={() => setFonte(f.valor)}
-                  className={cn('rounded px-3 py-1.5 text-sm font-medium transition-colors',
-                    fonte === f.valor ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100')}
+                  key={f.valor} role="tab" aria-selected={fonte === f.valor} onClick={() => setFonte(f.valor)}
+                  className={cn('rounded-md px-3 py-1.5 text-sm font-semibold transition-colors',
+                    fonte === f.valor ? 'bg-[#1d4ed8] text-white' : 'text-slate-600 hover:bg-slate-100')}
                 >
                   {f.rotulo}
                 </button>
               ))}
             </div>
             <Button variant="outline" size="sm" onClick={() => setJanela('metas')}><Flag className="mr-1 h-4 w-4" />Metas</Button>
-            <Button variant="outline" size="sm" onClick={() => setJanela('rd')}><Settings2 className="mr-1 h-4 w-4" />RD Station</Button>
+            <Button variant="outline" size="sm" onClick={() => setJanela('rd')} aria-label="Conexão com o RD Station"><Settings2 className="h-4 w-4" /></Button>
           </div>
         </div>
 
         {/* Filtros */}
-        <Card>
-          <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:flex-wrap">
-            <Seletor rotulo="Período" valor={filtros.mes} onChange={setF('mes')} todos={null} opcoes={meses} />
-            <Seletor rotulo="Executivo" valor={filtros.executivo ?? ''} onChange={setF('executivo')} opcoes={(data?.opcoes.executivos ?? []).map((v) => ({ valor: v, rotulo: v }))} />
-            <Seletor rotulo="Produto" valor={filtros.produto ?? ''} onChange={setF('produto')} opcoes={(data?.opcoes.produtos ?? []).map((v) => ({ valor: v, rotulo: v }))} />
-            <Seletor rotulo="Funil" valor={filtros.funil ?? ''} onChange={setF('funil')} opcoes={(data?.opcoes.funis ?? []).map((v) => ({ valor: v, rotulo: v }))} />
-            <Seletor rotulo="Origem" valor={filtros.origem ?? ''} onChange={setF('origem')} opcoes={(data?.opcoes.origens ?? []).map((v) => ({ valor: v, rotulo: v }))} />
-            <Seletor rotulo="Região" valor={filtros.regiao ?? ''} onChange={setF('regiao')} opcoes={(data?.opcoes.regioes ?? []).map((v) => ({ valor: v, rotulo: v }))} />
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[1.45fr_1fr_1fr_1fr_1fr_1fr]">
+          <Filtro icone={Calendar} rotulo="Período" prefixo valor={filtros.mes} onChange={setF('mes')} opcoes={meses} />
+          <Filtro icone={User} rotulo="Executivo" valor={filtros.executivo ?? ''} onChange={setF('executivo')} opcoes={op(data?.opcoes.executivos)} />
+          <Filtro icone={Package} rotulo="Produto" valor={filtros.produto ?? ''} onChange={setF('produto')} opcoes={op(data?.opcoes.produtos)} />
+          <Filtro icone={GitBranch} rotulo="Funil" valor={filtros.funil ?? ''} onChange={setF('funil')} opcoes={op(data?.opcoes.funis)} />
+          <Filtro icone={Globe} rotulo="Origem" valor={filtros.origem ?? ''} onChange={setF('origem')} opcoes={op(data?.opcoes.origens)} />
+          <Filtro icone={MapPin} rotulo="Região" valor={filtros.regiao ?? ''} onChange={setF('regiao')} opcoes={op(data?.opcoes.regioes)} />
+        </div>
 
         {isLoading && <div className="flex justify-center py-24"><LoadingSpinner /></div>}
         {error && <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">Não foi possível carregar o painel: {(error as Error).message}</p>}
@@ -376,245 +216,323 @@ function Conteudo({ data, atualizando, abrirMetas, abrirRd }: {
   data: PainelComercialData; atualizando: boolean; abrirMetas: () => void; abrirRd: () => void
 }) {
   const k = data.kpis
-  const usaRd = data.fonte !== 'crm'
+  const foto = data.fotoAnterior
 
   if (data.fonte === 'rd' && !data.rd) {
     return (
-      <Card><CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <Layers className="h-10 w-10 text-blue-700" />
-        <p className="max-w-md text-sm text-slate-600">O RD Station ainda não está conectado. Cole o token da instância de um usuário admin do RD para trazer as negociações.</p>
-        <Button onClick={abrirRd}>Conectar RD Station</Button>
-      </CardContent></Card>
+      <Caixa>
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <Layers className="h-10 w-10 text-blue-700" />
+          <p className="max-w-md text-sm text-slate-600">O RD Station ainda não está conectado. Cole o token da instância de um usuário admin do RD para trazer as negociações.</p>
+          <Button onClick={abrirRd}>Conectar RD Station</Button>
+        </div>
+      </Caixa>
     )
   }
 
   const barrasMeta = [
-    { nome: 'Meta', valor: data.metaRealizadoForecast.meta ?? 0, cor: NEUTRO },
-    { nome: 'Vendido', valor: data.metaRealizadoForecast.vendido, cor: AZUL },
-    { nome: 'Projeção', valor: data.metaRealizadoForecast.projecao, cor: AZUL_CLARO },
+    { nome: 'Meta', valor: data.metaRealizadoForecast.meta ?? 0, cor: C.azul },
+    { nome: 'Vendido', valor: data.metaRealizadoForecast.vendido, cor: C.verde },
+    { nome: 'Forecast', valor: data.metaRealizadoForecast.projecao, cor: C.teal, extra: 'vendido + commit (negociação e fechamento)' },
   ]
+  const totalProduto = data.porProduto.reduce((t, p) => t + p.valor, 0)
+  const produtos = data.porProduto.map((p, i) => ({
+    ...p, cor: p.nome === 'Outros' ? C.cinza : CORES_PRODUTO[i % CORES_PRODUTO.length], parte: totalProduto ? p.valor / totalProduto : 0,
+  }))
+  const funilMax = Math.max(...data.funil.map((f) => f.valor), 1)
 
   return (
-    <div className={cn('space-y-4 transition-opacity', atualizando && 'opacity-70')}>
-      {/* Avisos */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {usaRd && data.rd && (
+    <div className={cn('space-y-3 transition-opacity', atualizando && 'opacity-70')}>
+      {/* Avisos discretos */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+        {data.fonte !== 'crm' && data.rd && (
           <span>RD Station sincronizado {haQuanto(data.rd.last_sync_at)}{data.rd.last_sync_status === 'erro' && <span className="text-red-700"> · última tentativa falhou</span>}</span>
         )}
         {k.meta === null && (
-          <button onClick={abrirMetas} className="text-amber-700 underline-offset-2 hover:underline">
-            Sem meta cadastrada para este mês: cadastre para ver atingimento, gap e cobertura
-          </button>
+          <button onClick={abrirMetas} className="font-medium text-amber-700 hover:underline">Cadastrar meta do mês</button>
+        )}
+        {data.qualidade.abertosSemValor > 0 && (
+          <span className="inline-flex items-center gap-1 text-amber-800" title="Negócio sem valor não entra no pipeline nem no forecast.">
+            <Info className="h-3.5 w-3.5" />{data.qualidade.abertosSemValor} de {k.abertos} negócios abertos sem valor
+          </span>
         )}
       </div>
-      {data.qualidade.abertosSemValor > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <Info className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            {data.qualidade.abertosSemValor} de {k.abertos} negócios abertos estão sem valor e não entram no pipeline nem no forecast.
-            {data.qualidade.abertosSemProduto > 0 && ` ${data.qualidade.abertosSemProduto} estão sem produto.`}
-          </span>
-        </div>
-      )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Kpi icone={Target} titulo="Meta do mês" valor={compacto(k.meta)} rodape={k.meta === null && <span className="text-xs text-muted-foreground">não cadastrada</span>} />
-        <Kpi icone={DollarSign} titulo="Vendido" valor={compacto(k.vendido)} rodape={<Variacao atual={k.vendido} anterior={k.vendidoAnt} />} dica={`${k.ganhosMes} negócios ganhos no mês`} />
-        <Kpi icone={Percent} titulo="% Atingimento" valor={pct(k.atingimento)} rodape={<Variacao atual={k.atingimento} anterior={k.atingimentoAnt} modo="pp" />} />
-        <Kpi icone={TrendingDown} titulo="Gap da meta" valor={compacto(k.gap)} />
-        <Kpi icone={Filter} titulo="Pipeline aberto" valor={compacto(k.pipeline)} rodape={<span className="text-xs text-muted-foreground">{k.abertos} negócios abertos</span>} />
-        <Kpi icone={BadgeCheck} titulo="Pipeline qualificado" valor={compacto(k.qualificado)} rodape={<span className="text-xs text-muted-foreground">da apresentação em diante</span>} />
-        <Kpi icone={LineChart} titulo="Forecast ponderado" valor={compacto(k.ponderado)} rodape={<span className="text-xs text-muted-foreground">valor × chance da etapa</span>} />
-        <Kpi icone={ShieldCheck} titulo="Commit" valor={compacto(k.commit)} rodape={<span className="text-xs text-muted-foreground">negociação e fechamento</span>} />
-        <Kpi icone={Layers} titulo="Cobertura de pipeline" valor={vezes(k.cobertura)} rodape={<span className="text-xs text-muted-foreground">pipeline ÷ gap</span>} />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+        <Kpi icone={Target} cor={C.azul} titulo="Meta do mês" valor={valorCard(k.meta)} rodape={<Variacao atual={k.meta} anterior={k.metaAnt} />} />
+        <Kpi icone={DollarSign} cor={C.verde} titulo="Vendido" valor={valorCard(k.vendido)} rodape={<Variacao atual={k.vendido} anterior={k.vendidoAnt} />} dica={`${k.ganhosMes} negócios ganhos no mês`} />
+        <Kpi icone={IconePizza} cor={C.teal} titulo="% Atingimento" valor={pct(k.atingimento)} rodape={<Variacao atual={k.atingimento} anterior={k.atingimentoAnt} modo="pp" />} />
+        <Kpi icone={TrendingUp} cor={C.laranja} titulo="Gap da meta" valor={valorCard(k.gap)} rodape={<Variacao atual={k.gap} anterior={k.gapAnt} inverso />} />
+        <Kpi icone={Filter} cor={C.roxo} titulo="Pipeline aberto" valor={valorCard(k.pipeline)} rodape={<Variacao atual={k.pipeline} anterior={foto?.pipeline} />} dica={`${k.abertos} negócios abertos`} />
+        <Kpi icone={Users} cor={C.azul} titulo="Pipeline qualificado" valor={valorCard(k.qualificado)} rodape={<Variacao atual={k.qualificado} anterior={foto?.qualificado} />} dica="Da apresentação em diante" />
+        <Kpi icone={LineChart} cor={C.teal} titulo="Forecast ponderado" valor={valorCard(k.ponderado)} rodape={<Variacao atual={k.ponderado} anterior={foto?.ponderado} />} dica="Valor × chance da etapa" />
+        <Kpi icone={ShieldCheck} cor={C.verde} titulo="Commit" valor={valorCard(k.commit)} rodape={<Variacao atual={k.commit} anterior={foto?.commit} />} dica="Negócios em negociação e fechamento" />
+        <Kpi icone={Shield} cor={C.marinho} titulo="Cobertura de pipeline" valor={vezes(k.cobertura)} rodape={<Variacao atual={k.cobertura} anterior={foto?.cobertura} modo="x" />} dica="Pipeline aberto ÷ gap da meta" />
       </div>
 
-      {/* Funil, meta x realizado, forecast */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Bloco titulo="Funil comercial" nota="negócios abertos">
-          <div className="space-y-1.5">
-            {data.funil.map((f, i) => {
-              const largura = 100 - i * 9
-              return (
-                <div key={f.etapa} className="flex items-center gap-3">
-                  <div className="flex flex-1 justify-center">
-                    <div
-                      className="flex h-7 items-center justify-center rounded text-xs font-medium text-white"
-                      style={{ width: `${largura}%`, background: RAMPA_FUNIL[i], color: i < 2 ? '#0f172a' : '#fff' }}
-                      title={`${f.etapa}: ${f.negocios} negócios, ${dinheiro(f.valor)} (chance ${pct(f.chance, 0)})`}
-                    >
-                      {f.etapa}
-                    </div>
+      {/* Funil, meta x realizado x forecast, forecast 30/60/90 */}
+      <div className="grid gap-3 xl:grid-cols-[1.3fr_1fr_1fr]">
+        <Caixa titulo="Funil Financeiro">
+          <div className="flex items-center gap-3">
+            <div className="flex w-[32%] shrink-0 flex-col items-center gap-[3px] 2xl:w-[40%]">
+              {data.funil.map((f, i) => {
+                const Icone = ICONES_FUNIL[i]
+                const topo = 100 - i * 13
+                const base = 100 - (i + 1) * 13
+                return (
+                  <div
+                    key={f.etapa}
+                    className="flex h-[30px] w-full items-center justify-center"
+                    style={{ background: CORES_FUNIL[i], clipPath: `polygon(${(100 - topo) / 2}% 0, ${100 - (100 - topo) / 2}% 0, ${100 - (100 - base) / 2}% 100%, ${(100 - base) / 2}% 100%)` }}
+                    title={`${f.etapa}: ${f.negocios} negócios · ${dinheiro(f.valor)}`}
+                  >
+                    <Icone className="h-4 w-4 text-white" strokeWidth={2.5} />
                   </div>
-                  <div className="w-24 text-right text-xs tabular-nums text-slate-700">
-                    <div className="font-medium">{f.negocios}</div>
-                    <div className="text-muted-foreground">{compacto(f.valor)}</div>
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+            <ul className="min-w-0 flex-1 space-y-[9px] text-[12px] 2xl:text-[13px]">
+              {data.funil.map((f, i) => (
+                <li key={f.etapa} className="flex items-center gap-1.5" title={`${f.etapa}: ${pct(f.valor / funilMax, 0)} da maior etapa`}>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CORES_FUNIL[i] }} />
+                  <span className="min-w-0 flex-1 truncate text-slate-700">{f.etapa}</span>
+                  <span className="w-8 text-right tabular-nums text-slate-800">{f.negocios}</span>
+                  <span className="text-slate-300">|</span>
+                  <span className="w-[78px] text-right tabular-nums text-slate-800">R$ {mil(f.valor)} mil</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </Bloco>
+        </Caixa>
 
-        <Bloco titulo="Meta x Vendido x Projeção" nota="projeção = vendido + commit">
-          <div className="h-56">
+        <Caixa titulo="Meta x Realizado x Forecast">
+          <div className="text-[11px] text-slate-500">R$ mil</div>
+          <div className="h-[170px]">
             <ResponsiveContainer>
-              <BarChart data={barrasMeta} margin={{ top: 24, right: 8, left: 8, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="#eef2f7" />
+              <BarChart data={barrasMeta} margin={{ top: 22, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke={C.grade} />
                 <XAxis dataKey="nome" tick={EIXO} axisLine={false} tickLine={false} />
-                <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => compacto(v).replace('R$ ', '')} width={56} />
-                <Tooltip content={<DicaGrafico />} cursor={{ fill: '#f1f5f9' }} />
-                <Bar dataKey="valor" radius={[4, 4, 0, 0]} maxBarSize={72}>
+                <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => mil(Number(v))} width={48} />
+                <Tooltip content={<Dica />} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" radius={[3, 3, 0, 0]} maxBarSize={64}>
                   {barrasMeta.map((b) => <Cell key={b.nome} fill={b.cor} />)}
-                  <LabelList dataKey="valor" position="top" formatter={(v) => compacto(Number(v)).replace('R$ ', '')} style={{ fontSize: 11, fill: '#334155', whiteSpace: 'nowrap' }} />
+                  <LabelList dataKey="valor" position="top" formatter={(v) => dinheiro(Number(v))} style={{ fontSize: 11, fontWeight: 600, fill: '#1e293b', whiteSpace: 'nowrap' }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </Bloco>
+        </Caixa>
 
-        <Bloco titulo="Forecast 30 / 60 / 90 dias" nota="ponderado, acumulado">
-          <div className="h-56">
+        <Caixa titulo="Forecast 30 / 60 / 90 dias">
+          <div className="text-[11px] text-slate-500">R$ mil</div>
+          <div className="h-[170px]">
             <ResponsiveContainer>
-              <BarChart data={data.forecast.map((f) => ({ nome: `${f.dias} dias`, valor: f.valor }))} margin={{ top: 24, right: 8, left: 8, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="#eef2f7" />
+              <BarChart data={data.forecast.map((f) => ({ nome: `${f.dias} dias`, valor: f.valor, extra: 'ponderado, acumulado' }))} margin={{ top: 22, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke={C.grade} />
                 <XAxis dataKey="nome" tick={EIXO} axisLine={false} tickLine={false} />
-                <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => compacto(v).replace('R$ ', '')} width={56} />
-                <Tooltip content={<DicaGrafico />} cursor={{ fill: '#f1f5f9' }} />
-                <Bar dataKey="valor" fill={AZUL} radius={[4, 4, 0, 0]} maxBarSize={72}>
-                  <LabelList dataKey="valor" position="top" formatter={(v) => compacto(Number(v)).replace('R$ ', '')} style={{ fontSize: 11, fill: '#334155', whiteSpace: 'nowrap' }} />
+                <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => mil(Number(v))} width={48} />
+                <Tooltip content={<Dica />} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" fill={C.tealClaro} radius={[3, 3, 0, 0]} maxBarSize={64}>
+                  <LabelList dataKey="valor" position="top" formatter={(v) => dinheiro(Number(v))} style={{ fontSize: 11, fontWeight: 600, fill: '#1e293b', whiteSpace: 'nowrap' }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Pela previsão de fechamento quando existe; senão pela etapa (negociação/fechamento em 30, proposta em 60, apresentação em 90).</p>
-        </Bloco>
+        </Caixa>
       </div>
 
-      {/* Pipeline por produto e por executivo, saúde */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Bloco titulo="Pipeline por produto">
-          <BarrasHorizontais dados={data.porProduto} />
-        </Bloco>
-        <Bloco titulo="Pipeline por executivo">
-          <BarrasHorizontais dados={data.porExecutivo.slice(0, 10)} />
-        </Bloco>
-        <Bloco titulo="Saúde comercial">
-          <ul className="divide-y">
+      {/* Pipeline por etapa, produto, executivo e saúde */}
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-[1fr_1.2fr_1fr_0.85fr]">
+        <Caixa titulo="Pipeline por Etapa" extra="R$ mil">
+          <div className="h-[160px]">
+            <ResponsiveContainer>
+              <BarChart data={data.funil.map((f) => ({ nome: f.etapa, valor: f.valor, extra: `${f.negocios} negócios` }))} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }} barCategoryGap={5}>
+                <CartesianGrid horizontal={false} stroke={C.grade} />
+                <XAxis type="number" tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => mil(Number(v))} />
+                <YAxis type="category" dataKey="nome" tick={EIXO} axisLine={false} tickLine={false} width={82} />
+                <Tooltip content={<Dica />} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" fill={C.azul} maxBarSize={14} radius={[0, 2, 2, 0]}>
+                  <LabelList dataKey="valor" position="right" formatter={(v) => mil(Number(v))} style={{ fontSize: 11, fontWeight: 600, fill: '#1e293b' }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Caixa>
+
+        <Caixa titulo="Pipeline por Produto">
+          <div className="flex items-center gap-3">
+            <div className="relative h-[130px] w-[130px] shrink-0 2xl:h-[150px] 2xl:w-[150px]">
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie data={produtos} dataKey="valor" nameKey="nome" innerRadius="62%" outerRadius="98%" paddingAngle={1} stroke="#fff" strokeWidth={2} startAngle={90} endAngle={-270}>
+                    {produtos.map((p) => <Cell key={p.nome} fill={p.cor} />)}
+                  </Pie>
+                  <Tooltip content={<Dica />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[12px] font-bold text-slate-900 2xl:text-[13px]">R$ {mil(totalProduto)} mil</span>
+                <span className="text-[11px] font-semibold text-slate-600">100%</span>
+              </div>
+            </div>
+            <ul className="min-w-0 flex-1 space-y-1.5 text-[11px] 2xl:text-[12px]">
+              {produtos.map((p) => (
+                <li key={p.nome} className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.cor }} />
+                  <span className="min-w-0 flex-1 truncate text-slate-700" title={p.nome}>{p.nome}</span>
+                  <span className="shrink-0 tabular-nums text-slate-800" title={pct(p.parte)}>R$ {mil(p.valor)} mil<span className="hidden 2xl:inline"> ({pct(p.parte)})</span></span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Caixa>
+
+        <Caixa titulo="Pipeline por Executivo" extra="R$ mil">
+          <div className="h-[160px]">
+            <ResponsiveContainer>
+              <BarChart data={data.porExecutivo.slice(0, 5).map((e) => ({ ...e, curto: e.nome.split(' ')[0] }))} margin={{ top: 18, right: 4, left: -14, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke={C.grade} />
+                <XAxis dataKey="curto" tick={{ ...EIXO, fontSize: 10 }} axisLine={false} tickLine={false} interval={0}
+                  tickFormatter={(v: string) => (v.length > 8 ? `${v.slice(0, 7)}.` : v)} />
+                <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => mil(Number(v))} width={44} />
+                <Tooltip content={<Dica />} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" fill={C.azul} radius={[2, 2, 0, 0]} maxBarSize={30}>
+                  <LabelList dataKey="valor" position="top" formatter={(v) => mil(Number(v))} style={{ fontSize: 11, fontWeight: 600, fill: '#1e293b' }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Caixa>
+
+        <Caixa titulo="Saúde Comercial">
+          <ul className="divide-y divide-slate-100">
             {data.saude.map((s) => {
               const n = NIVEL[s.nivel]
+              const valor = s.formato === 'x' ? vezes(s.valor) : pct(s.valor, 0)
               return (
-                <li key={s.chave} className="flex items-center justify-between gap-2 py-2 text-sm" title={s.regra}>
-                  <span className="text-slate-700">{s.nome}</span>
-                  <span className="flex items-center gap-2 tabular-nums">
-                    <span className="text-slate-600">{s.formato === 'x' ? vezes(s.valor) : pct(s.valor, 0)}</span>
-                    <span className={cn('inline-flex w-24 items-center gap-1 text-xs font-medium', n.cor)}>
-                      <n.icone className="h-3.5 w-3.5" />{n.rotulo}
-                    </span>
+                <li key={s.chave} className="flex items-center justify-between gap-2 py-[7px] text-[12px] 2xl:text-[13px]" title={`${valor} · ${s.regra}`}>
+                  <span className="min-w-0 truncate text-slate-700">{s.nome}</span>
+                  <span className="flex w-[78px] shrink-0 items-center gap-1.5">
+                    <span className="h-3 w-3 rounded-full" style={{ background: n.cor }} />
+                    <span className="font-medium" style={{ color: n.cor === '#f59e0b' ? '#b45309' : n.cor }}>{n.rotulo}</span>
                   </span>
                 </li>
               )
             })}
           </ul>
-          <p className="mt-2 text-xs text-muted-foreground">Passe o mouse sobre cada linha para ver a regra.</p>
-        </Bloco>
+        </Caixa>
       </div>
 
-      {/* Gestão do pipeline */}
-      <Bloco titulo="Gestão do pipeline" nota="parados = abertos sem atualização há mais de 30 dias">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs font-medium text-slate-500">
-                <th className="py-2 pr-3">Executivo</th>
-                <th className="px-3 text-right">Meta</th>
-                <th className="px-3 text-right">Vendido</th>
-                <th className="px-3 text-right">Gap</th>
-                <th className="px-3 text-right">Pipeline</th>
-                <th className="px-3 text-right">Forecast</th>
-                <th className="px-3 text-right">Cobertura</th>
-                <th className="px-3 text-right">Abertos</th>
-                <th className="pl-3 text-right">Parados</th>
-              </tr>
-            </thead>
-            <tbody className="tabular-nums">
-              {data.executivos.map((e) => (
-                <tr key={e.nome} className="border-b last:border-0">
-                  <td className="py-2 pr-3 text-slate-800">{e.nome}</td>
-                  <td className="px-3 text-right">{dinheiro(e.meta)}</td>
-                  <td className="px-3 text-right">{dinheiro(e.vendido)}</td>
-                  <td className={cn('px-3 text-right', e.gap ? 'font-medium text-red-700' : '')}>{dinheiro(e.gap)}</td>
-                  <td className="px-3 text-right">{dinheiro(e.pipeline)}</td>
-                  <td className="px-3 text-right">{dinheiro(e.forecast)}</td>
-                  <td className="px-3 text-right">{vezes(e.cobertura)}</td>
-                  <td className="px-3 text-right">{e.abertos}</td>
-                  <td className={cn('pl-3 text-right', e.parados > 0 && e.parados / Math.max(e.abertos, 1) > 0.4 ? 'font-medium text-red-700' : '')}>{e.parados}</td>
-                </tr>
-              ))}
-              {!data.executivos.length && <tr><td colSpan={9} className="py-6 text-center text-muted-foreground">Nenhum negócio com esses filtros.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Bloco>
+      {/* Gestão do pipeline + canais */}
+      <div className="grid gap-3 2xl:grid-cols-[1.12fr_1fr]">
+        <div className="space-y-3">
+          <Caixa titulo="Gestão do Pipeline">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-[13px]">
+                <thead>
+                  <tr className="bg-slate-50 text-left text-xs font-bold text-slate-800">
+                    <th className="py-2 pl-2 pr-3">Executivo</th>
+                    <th className="px-3 text-center">Meta</th>
+                    <th className="px-3 text-center">Vendido</th>
+                    <th className="px-3 text-center">Gap</th>
+                    <th className="px-3 text-center">Pipeline</th>
+                    <th className="px-3 text-center">Forecast</th>
+                    <th className="px-3 text-center">Cobertura</th>
+                    <th className="px-3 text-center" title="Abertos sem atualização há mais de 30 dias">Negócios parados</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {data.executivos.map((e) => (
+                    <tr key={e.nome} className="border-b border-slate-100 last:border-0">
+                      <td className="py-1.5 pl-2 pr-3 text-slate-800">{e.nome}</td>
+                      <td className="px-3 text-center">{dinheiro(e.meta)}</td>
+                      <td className="px-3 text-center">{dinheiro(e.vendido)}</td>
+                      <td className={cn('px-3 text-center', e.gap ? 'text-red-600' : '')}>{dinheiro(e.gap)}</td>
+                      <td className="px-3 text-center">{dinheiro(e.pipeline)}</td>
+                      <td className="px-3 text-center">{dinheiro(e.forecast)}</td>
+                      <td className="px-3 text-center">{vezes(e.cobertura)}</td>
+                      <td className={cn('px-3 text-center', e.parados > 0 && 'text-red-600')}>{e.parados}</td>
+                    </tr>
+                  ))}
+                  {!data.executivos.length && <tr><td colSpan={8} className="py-6 text-center text-slate-500">Nenhum negócio com esses filtros.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Caixa>
 
-      {/* Canais de aquisição */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Bloco titulo="Clientes fechados por canal" nota={`jan a ${NOME_MES[Number(data.filtros.mes.slice(5)) - 1]}/${data.filtros.mes.slice(0, 4)}`} className="lg:col-span-2">
-          <BarrasHorizontais dados={data.canais.map((c) => ({ nome: c.canal, valor: c.clientes })).sort((a, b) => b.valor - a.valor)} formato={(v) => `${v} clientes`} rotulo={(v) => String(v)} />
-        </Bloco>
-        <Bloco titulo="Resumo por canal de aquisição" nota="ganhos do ano até o mês escolhido" className="lg:col-span-3">
+          <Caixa>
+            <span className="mb-3 inline-block rounded-full bg-[#1d4ed8] px-4 py-1 text-[13px] font-bold text-white">
+              Origem dos clientes fechados (Canais de Aquisição)
+            </span>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <h4 className="text-[13px] font-bold text-slate-900">Clientes fechados por canal</h4>
+                <p className="text-[11px] text-slate-500">Quantidade de clientes</p>
+                <BarrasCanal dados={[...data.canais].sort((a, b) => b.clientes - a.clientes).map((c) => ({ nome: c.canal, valor: c.clientes }))} rotulo={(v) => String(v)} fmt={(v) => `${v} clientes`} />
+              </div>
+              <div>
+                <h4 className="text-[13px] font-bold text-slate-900">Receita por canal de aquisição</h4>
+                <p className="text-[11px] text-slate-500">R$ mil</p>
+                <BarrasCanal dados={data.canais.map((c) => ({ nome: c.canal, valor: c.receita }))} rotulo={(v) => dinheiro(v)} fmt={dinheiro} eixoMil />
+              </div>
+            </div>
+          </Caixa>
+        </div>
+
+        <Caixa titulo="Resumo por canal de aquisição" extra={`ganhos de jan até o mês escolhido`}>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
+            <table className="w-full min-w-[520px] text-[13px]">
               <thead>
-                <tr className="border-b text-left text-xs font-medium text-slate-500">
-                  <th className="py-2 pr-3">Canal</th>
-                  <th className="px-3 text-right">Clientes</th>
-                  <th className="px-3 text-right">Receita</th>
-                  <th className="px-3 text-right">Ticket médio</th>
-                  <th className="pl-3 text-right" title="Ganhos ÷ (ganhos + perdidos) do canal no período">Conversão</th>
+                <tr className="bg-slate-50 text-left text-xs font-bold text-slate-800">
+                  <th className="py-2 pl-2 pr-3">Canal</th>
+                  <th className="px-3 text-center">Clientes fechados</th>
+                  <th className="px-3 text-center">Receita (R$)</th>
+                  <th className="px-3 text-center">Ticket médio (R$)</th>
+                  <th className="px-3 text-center" title="Ganhos ÷ (ganhos + perdidos) do canal no período">Conversão (%)</th>
                 </tr>
               </thead>
               <tbody className="tabular-nums">
                 {data.canais.map((c) => (
-                  <tr key={c.canal} className="border-b">
-                    <td className="py-2 pr-3 text-slate-800">{c.canal}</td>
-                    <td className="px-3 text-right">{c.clientes}</td>
-                    <td className="px-3 text-right">{dinheiro(c.receita)}</td>
-                    <td className="px-3 text-right">{dinheiro(c.ticket)}</td>
-                    <td className="pl-3 text-right">{pct(c.conversao)}</td>
+                  <tr key={c.canal} className="border-b border-slate-100">
+                    <td className="py-2 pl-2 pr-3 text-slate-800">{c.canal}</td>
+                    <td className="px-3 text-center">{c.clientes}</td>
+                    <td className="px-3 text-center">{dinheiro(c.receita)}</td>
+                    <td className="px-3 text-center">{dinheiro(c.ticket)}</td>
+                    <td className="px-3 text-center">{pct(c.conversao)}</td>
                   </tr>
                 ))}
-                <tr className="font-semibold text-slate-900">
-                  <td className="py-2 pr-3">Total</td>
-                  <td className="px-3 text-right">{data.canaisTotal.clientes}</td>
-                  <td className="px-3 text-right">{dinheiro(data.canaisTotal.receita)}</td>
-                  <td className="px-3 text-right">{dinheiro(data.canaisTotal.ticket)}</td>
-                  <td className="pl-3 text-right">{pct(data.canaisTotal.conversao)}</td>
+                <tr className="bg-slate-50 text-[15px] font-bold text-[#0f1f4b]">
+                  <td className="py-3 pl-2 pr-3">Total</td>
+                  <td className="px-3 text-center">{data.canaisTotal.clientes}</td>
+                  <td className="px-3 text-center">{dinheiro(data.canaisTotal.receita)}</td>
+                  <td className="px-3 text-center">{dinheiro(data.canaisTotal.ticket)}</td>
+                  <td className="px-3 text-center">{pct(data.canaisTotal.conversao)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </Bloco>
+        </Caixa>
       </div>
     </div>
   )
 }
 
-function BarrasHorizontais({ dados, formato = compacto, rotulo = compacto }: {
-  dados: { nome: string; valor: number }[]; formato?: (v: number) => string; rotulo?: (v: number) => string
+function BarrasCanal({ dados, rotulo, fmt, eixoMil }: {
+  dados: { nome: string; valor: number }[]; rotulo: (v: number) => string; fmt: (v: number) => string; eixoMil?: boolean
 }) {
-  if (!dados.length) return <p className="py-8 text-center text-sm text-muted-foreground">Sem dados.</p>
+  if (!dados.length) return <p className="py-8 text-center text-sm text-slate-500">Sem dados.</p>
   return (
-    <div style={{ height: Math.max(dados.length * 30 + 10, 120) }}>
+    <div style={{ height: Math.max(dados.length * 19 + 28, 120) }}>
       <ResponsiveContainer>
-        <BarChart data={dados} layout="vertical" margin={{ top: 0, right: 72, left: 0, bottom: 0 }} barCategoryGap={6}>
-          <XAxis type="number" hide />
-          <YAxis type="category" dataKey="nome" tick={EIXO} axisLine={false} tickLine={false} width={150}
-            tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 21)}…` : v)} />
-          <Tooltip content={<DicaGrafico formato={formato} />} cursor={{ fill: '#f1f5f9' }} />
-          <Bar dataKey="valor" fill={AZUL} radius={[0, 4, 4, 0]} maxBarSize={18}>
-            <LabelList dataKey="valor" position="right" formatter={(v) => rotulo(Number(v))} style={{ fontSize: 11, fill: '#334155', whiteSpace: 'nowrap' }} />
+        <BarChart data={dados} layout="vertical" margin={{ top: 4, right: eixoMil ? 78 : 28, left: 0, bottom: 0 }} barCategoryGap={3}>
+          <CartesianGrid horizontal={false} stroke={C.grade} />
+          <XAxis type="number" tick={EIXO} axisLine={false} tickLine={false} tickFormatter={(v) => (eixoMil ? mil(Number(v)) : String(v))} />
+          <YAxis type="category" dataKey="nome" tick={{ ...EIXO, fontSize: 10 }} axisLine={false} tickLine={false} width={112}
+            tickFormatter={(v: string) => (v.length > 20 ? `${v.slice(0, 19)}…` : v)} />
+          <Tooltip content={<Dica fmt={fmt} />} cursor={{ fill: '#f1f5f9' }} />
+          <Bar dataKey="valor" fill={C.azul} maxBarSize={10} radius={[0, 2, 2, 0]}>
+            <LabelList dataKey="valor" position="right" formatter={(v) => rotulo(Number(v))} style={{ fontSize: 10, fill: '#1e293b', whiteSpace: 'nowrap' }} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>

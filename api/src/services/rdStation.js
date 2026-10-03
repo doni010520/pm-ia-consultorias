@@ -10,6 +10,7 @@
 
 import { query, getClient } from './database.js';
 import { ufDoEndereco, ufDoTelefone } from './regiao.js';
+import { gravarSnapshots } from './painelComercial.js';
 
 const BASE = 'https://crm.rdstation.com/api/v1';
 const SYNC_INTERVAL_MS = 30 * 60 * 1000;
@@ -144,6 +145,7 @@ export function iniciarSyncRd() {
       const orgs = (await query('SELECT organization_id FROM integracao_rd')).rows;
       for (const { organization_id } of orgs) {
         await sincronizarRd(organization_id).catch((err) => console.error('[rd-sync] falhou:', err.message));
+        await gravarSnapshots(organization_id).catch((err) => console.error('[painel] foto diária falhou:', err.message));
       }
     } catch (err) {
       // Tabela ainda não existe (migration 023 pendente) ou banco fora: tenta na próxima.

@@ -151,6 +151,38 @@ export async function carregarMetas(orgId, meses) {
   return rows.map((r) => ({ mes: r.mes, executivo: r.executivo, valor: Number(r.valor) || 0 }));
 }
 
+// ─── foto diária (comparação "vs mês anterior" de pipeline, forecast, commit) ─
+
+const CAMPOS_FOTO = ['pipeline', 'qualificado', 'ponderado', 'commit', 'cobertura', 'abertos'];
+const hojeIso = () => new Date().toISOString().slice(0, 10);
+
+/** Grava (ou sobrescreve) a foto de hoje das três fontes, sem filtros. */
+export async function gravarSnapshots(orgId) {
+  const mes = hojeIso().slice(0, 7);
+  const metas = await carregarMetas(orgId, [mes, mesAnterior(mes)]);
+  for (const fonte of ['rd', 'crm', 'consolidado']) {
+    const { kpis } = calcularPainel(await carregarFonte(orgId, fonte), metas, { mes });
+    const foto = Object.fromEntries(CAMPOS_FOTO.map((c) => [c, kpis[c]]));
+    await query(
+      `INSERT INTO painel_snapshots (organization_id, fonte, dia, kpis) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (organization_id, fonte, dia) DO UPDATE SET kpis = EXCLUDED.kpis, created_at = NOW()`,
+      [orgId, fonte, hojeIso(), JSON.stringify(foto)],
+    );
+  }
+}
+
+/** Foto de ~1 mês atrás (a mais recente até 30 dias antes, aceitando até 40). */
+export async function fotoDoMesAnterior(orgId, fonte) {
+  const { rows } = await query(
+    `SELECT kpis FROM painel_snapshots
+      WHERE organization_id = $1 AND fonte = $2
+        AND dia <= CURRENT_DATE - 30 AND dia >= CURRENT_DATE - 40
+      ORDER BY dia DESC LIMIT 1`,
+    [orgId, fonte],
+  );
+  return rows[0]?.kpis || null;
+}
+
 // ─── cálculo ─────────────────────────────────────────────────────────────────
 
 const mesDe = (d) => (d ? new Date(d).toISOString().slice(0, 7) : null);
@@ -233,6 +265,7 @@ export function calcularPainel(linhas, metas, filtros, agora = Date.now()) {
   const atingimento = razao(vendido, meta);
   const atingimentoAnt = razao(vendidoAnt, metaAnt);
   const gap = meta === null ? null : Math.max(meta - vendido, 0);
+  const gapAnt = metaAnt === null ? null : Math.max(metaAnt - vendidoAnt, 0);
   const pipeline = soma(abertos, valorDe);
   const qualificado = soma(abertos.filter((r) => GRUPOS.indexOf(r.grupo) >= 2), valorDe);
   const ponderado = soma(abertos, (r) => valorDe(r) * CHANCE[r.grupo]);
@@ -299,7 +332,7 @@ export function calcularPainel(linhas, metas, filtros, agora = Date.now()) {
   return {
     filtros,
     kpis: {
-      meta, vendido, vendidoAnt, atingimento, atingimentoAnt, gap,
+      meta, metaAnt, vendido, vendidoAnt, atingimento, atingimentoAnt, gap, gapAnt,
       pipeline, qualificado, ponderado, commit, cobertura,
       abertos: abertos.length,
       ganhosMes: ganhosNo(mes).length,

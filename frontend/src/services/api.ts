@@ -700,10 +700,12 @@ export interface StatusRd {
 export interface PainelComercialData {
   fonte: FontePainel
   rd: StatusRd | null
+  /** Foto de ~30 dias atrás (só mês corrente sem filtros) para o "vs mês anterior". */
+  fotoAnterior: { pipeline: number; qualificado: number; ponderado: number; commit: number; cobertura: number | null; abertos: number } | null
   filtros: PainelFiltros
   kpis: {
-    meta: number | null; vendido: number; vendidoAnt: number; atingimento: number | null; atingimentoAnt: number | null
-    gap: number | null; pipeline: number; qualificado: number; ponderado: number; commit: number
+    meta: number | null; metaAnt: number | null; vendido: number; vendidoAnt: number; atingimento: number | null; atingimentoAnt: number | null
+    gap: number | null; gapAnt: number | null; pipeline: number; qualificado: number; ponderado: number; commit: number
     cobertura: number | null; abertos: number; ganhosMes: number
   }
   metaRealizadoForecast: { meta: number | null; vendido: number; projecao: number }
