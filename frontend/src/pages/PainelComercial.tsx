@@ -73,16 +73,16 @@ function Variacao({ atual, anterior, modo = 'pct', inverso = false }: { atual: n
   )
 }
 
-function Kpi({ icone: Icone, cor, titulo, valor, curto, rodape, dica }: {
-  icone: typeof Target; cor: string; titulo: string; valor: string; curto?: string; rodape: React.ReactNode; dica?: string
+function Kpi({ icone: Icone, cor, titulo, nome, valor, curto, rodape, dica }: {
+  icone: typeof Target; cor: string; titulo: string; nome?: string; valor: string; curto?: string; rodape: React.ReactNode; dica?: string
 }) {
   return (
-    <div className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm 2xl:p-3" title={dica}>
-      <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white 2xl:h-8 2xl:w-8" style={{ background: cor }}>
-          <Icone className="h-3.5 w-3.5 2xl:h-4 2xl:w-4" strokeWidth={2.5} />
+    <div className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm xl:px-2 min-[1800px]:p-3" title={[nome ?? titulo, dica].filter(Boolean).join(' · ')}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white xl:h-6 xl:w-6 min-[1800px]:h-8 min-[1800px]:w-8" style={{ background: cor }}>
+          <Icone className="h-3.5 w-3.5 xl:h-3 xl:w-3 min-[1800px]:h-4 min-[1800px]:w-4" strokeWidth={2.5} />
         </span>
-        <span className="text-[12px] font-semibold leading-tight text-slate-800 xl:text-[11px] min-[1440px]:text-[12px] 2xl:text-[13px]">{titulo}</span>
+        <span className="min-w-0 truncate whitespace-nowrap text-[12px] font-semibold text-slate-800 xl:text-[10px] min-[1440px]:text-[11px] 2xl:text-[12px] min-[1800px]:text-[13px]">{titulo}</span>
       </div>
       <div className="mt-2 truncate text-center text-[22px] font-bold tabular-nums xl:text-[15px] 2xl:text-[18px] min-[1800px]:text-[22px]" style={{ color: cor }} title={valor}>
         {/* 1280–1535px: 9 cards numa linha não comportam "R$ 251.538"; usa "R$ 251,5 mil". */}
@@ -264,15 +264,15 @@ function Conteudo({ data, atualizando, abrirMetas, abrirRd }: {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
-        <Kpi icone={Target} cor={C.azul} titulo="Meta do mês" valor={valorCard(k.meta)} curto={curtoCard(k.meta)} rodape={<Variacao atual={k.meta} anterior={k.metaAnt} />} />
+        <Kpi icone={Target} cor={C.azul} titulo="Meta" nome="Meta do mês" valor={valorCard(k.meta)} curto={curtoCard(k.meta)} rodape={<Variacao atual={k.meta} anterior={k.metaAnt} />} />
         <Kpi icone={DollarSign} cor={C.verde} titulo="Vendido" valor={valorCard(k.vendido)} curto={curtoCard(k.vendido)} rodape={<Variacao atual={k.vendido} anterior={k.vendidoAnt} />} dica={`${k.ganhosMes} negócios ganhos no mês`} />
-        <Kpi icone={IconePizza} cor={C.teal} titulo="% Atingimento" valor={pct(k.atingimento)} rodape={<Variacao atual={k.atingimento} anterior={k.atingimentoAnt} modo="pp" />} />
-        <Kpi icone={TrendingUp} cor={C.laranja} titulo="Gap da meta" valor={valorCard(k.gap)} curto={curtoCard(k.gap)} rodape={<Variacao atual={k.gap} anterior={k.gapAnt} inverso />} />
-        <Kpi icone={Filter} cor={C.roxo} titulo="Pipeline aberto" valor={valorCard(k.pipeline)} curto={curtoCard(k.pipeline)} rodape={<Variacao atual={k.pipeline} anterior={foto?.pipeline} />} dica={`${k.abertos} negócios abertos`} />
-        <Kpi icone={Users} cor={C.azul} titulo="Pipeline qualificado" valor={valorCard(k.qualificado)} curto={curtoCard(k.qualificado)} rodape={<Variacao atual={k.qualificado} anterior={foto?.qualificado} />} dica="Da apresentação em diante" />
-        <Kpi icone={LineChart} cor={C.teal} titulo="Forecast ponderado" valor={valorCard(k.ponderado)} curto={curtoCard(k.ponderado)} rodape={<Variacao atual={k.ponderado} anterior={foto?.ponderado} />} dica="Valor × chance da etapa" />
+        <Kpi icone={IconePizza} cor={C.teal} titulo="Atingimento" nome="% de atingimento da meta" valor={pct(k.atingimento)} rodape={<Variacao atual={k.atingimento} anterior={k.atingimentoAnt} modo="pp" />} />
+        <Kpi icone={TrendingUp} cor={C.laranja} titulo="Gap" nome="Gap da meta" valor={valorCard(k.gap)} curto={curtoCard(k.gap)} rodape={<Variacao atual={k.gap} anterior={k.gapAnt} inverso />} />
+        <Kpi icone={Filter} cor={C.roxo} titulo="Pipeline" nome="Pipeline aberto" valor={valorCard(k.pipeline)} curto={curtoCard(k.pipeline)} rodape={<Variacao atual={k.pipeline} anterior={foto?.pipeline} />} dica={`${k.abertos} negócios abertos`} />
+        <Kpi icone={Users} cor={C.azul} titulo="Qualificado" nome="Pipeline qualificado" valor={valorCard(k.qualificado)} curto={curtoCard(k.qualificado)} rodape={<Variacao atual={k.qualificado} anterior={foto?.qualificado} />} dica="Da apresentação em diante" />
+        <Kpi icone={LineChart} cor={C.teal} titulo="Forecast" nome="Forecast ponderado" valor={valorCard(k.ponderado)} curto={curtoCard(k.ponderado)} rodape={<Variacao atual={k.ponderado} anterior={foto?.ponderado} />} dica="Valor × chance da etapa" />
         <Kpi icone={ShieldCheck} cor={C.verde} titulo="Commit" valor={valorCard(k.commit)} curto={curtoCard(k.commit)} rodape={<Variacao atual={k.commit} anterior={foto?.commit} />} dica="Negócios em negociação e fechamento" />
-        <Kpi icone={Shield} cor={C.marinho} titulo="Cobertura de pipeline" valor={vezes(k.cobertura)} rodape={<Variacao atual={k.cobertura} anterior={foto?.cobertura} modo="x" />} dica="Pipeline aberto ÷ gap da meta" />
+        <Kpi icone={Shield} cor={C.marinho} titulo="Cobertura" nome="Cobertura de pipeline" valor={vezes(k.cobertura)} rodape={<Variacao atual={k.cobertura} anterior={foto?.cobertura} modo="x" />} dica="Pipeline aberto ÷ gap da meta" />
       </div>
 
       {/* Funil, meta x realizado x forecast, forecast 30/60/90 */}
