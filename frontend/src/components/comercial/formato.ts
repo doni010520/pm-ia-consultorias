@@ -10,6 +10,15 @@ export function valorCard(v: number | null | undefined) {
   return brl.format(v)
 }
 
+/** R$ 251,5 mil / R$ 1,98 mi — para cards estreitos. */
+export function curtoCard(v: number | null | undefined) {
+  if (v === null || v === undefined) return '—'
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return `R$ ${(v / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi`
+  if (a >= 1_000) return `R$ ${(v / 1_000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} mil`
+  return brl.format(v)
+}
+
 /** Valor em milhares para eixos e rótulos de gráfico ("R$ mil"). */
 export const mil = (v: number) => Math.round(v / 1000).toLocaleString('pt-BR')
 
