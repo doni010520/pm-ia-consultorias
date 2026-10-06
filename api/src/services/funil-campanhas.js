@@ -57,8 +57,10 @@ export async function relatorioFunil({ orgId, period, start_date, end_date, camp
             count(*) FILTER (WHERE f.first_lead_reply_at IS NOT NULL)::int AS responderam,
             count(*) FILTER (WHERE f.etapa NOT IN ('novo','rica_iniciou','engajou','nutricao','nao_contatar','perdido')
                                OR f.dor_principal IS NOT NULL)::int AS diagnostico_iniciado,
-            count(*) FILTER (WHERE f.dor_principal IS NOT NULL)::int AS dor_identificada,
-            count(*) FILTER (WHERE f.qualified_at IS NOT NULL)::int AS qualificados,
+            -- Funil acumulado: quem passou de uma etapa conta nela (no GPS a Rica manda o
+            -- link sem marcar qualified_at; o relatório saía "0 qualificados, 4 links").
+            count(*) FILTER (WHERE f.dor_principal IS NOT NULL OR f.qualified_at IS NOT NULL OR f.scheduling_options_shown_at IS NOT NULL OR f.link_agenda_enviado_at IS NOT NULL OR f.meeting_booked_at IS NOT NULL OR f.handoff_at IS NOT NULL)::int AS dor_identificada,
+            count(*) FILTER (WHERE f.qualified_at IS NOT NULL OR f.scheduling_options_shown_at IS NOT NULL OR f.link_agenda_enviado_at IS NOT NULL OR f.meeting_booked_at IS NOT NULL OR f.handoff_at IS NOT NULL)::int AS qualificados,
             count(*) FILTER (WHERE f.scheduling_options_shown_at IS NOT NULL)::int AS agendamento_oferecido,
             count(*) FILTER (WHERE f.meeting_booked_at IS NOT NULL)::int AS reunioes_agendadas,
             count(*) FILTER (WHERE f.handoff_at IS NOT NULL)::int AS transferidos_andre,
