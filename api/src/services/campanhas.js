@@ -16,6 +16,7 @@
  */
 
 import { query } from './database.js';
+import { ufDoTelefone, NOME_UF } from './regiao.js';
 
 // ─── Configuração ────────────────────────────────────────────────────────────
 
@@ -239,7 +240,19 @@ export function resumirCampanha(nome, leads) {
     em_andamento_ultimas_24h: conta((l) => l.etapa === 'em_andamento'),
     pararam_sem_responder_a_rica: pararam.so_mensagem_do_anuncio,
     conversaram_e_pararam: pararam.conversou_e_parou,
+    // Localidade pelo DDD do telefone (a Jéssica pediu em 06/10: "Rio de Janeiro - 3,
+    // Pernambuco - 3"). Número estrangeiro ou sem DDD válido = "Não identificado".
+    por_estado: porEstado(leads),
   };
+}
+
+function porEstado(leads) {
+  const c = {};
+  for (const l of leads) {
+    const nome = NOME_UF[l.uf] || 'Não identificado';
+    c[nome] = (c[nome] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(c).sort((a, b) => b[1] - a[1]));
 }
 
 /**
@@ -379,7 +392,7 @@ export async function relatorioCampanhas({ orgId, campanha, periodo, listar = 'n
         .filter((x) => new Date(x.em) >= new Date(new Date(anuncioEm).getTime() - 60000))
         .sort((a, b) => (a.viaCrm === b.viaCrm ? new Date(a.em) - new Date(b.em) : a.viaCrm ? 1 : -1))[0];
       const d = desfechoDoLead({ anuncioEm, msgs, transferencia: t, agora });
-      leads.push({ ...d, k, anuncioEm });
+      leads.push({ ...d, k, anuncioEm, uf: ufDoTelefone(fonePorPessoa.get(k)) });
     }
     const resumo = resumirCampanha(c.nome, leads);
     if (listar !== 'nenhum') {
@@ -396,6 +409,7 @@ export async function relatorioCampanhas({ orgId, campanha, periodo, listar = 'n
           etapa: l.etapa,
           onde_parou: ['so_mensagem_do_anuncio', 'conversou_e_parou'].includes(l.etapa) ? ROTULO_PARADA[l.pergunta_pendente] : undefined,
           executivo: l.executivo || undefined,
+          estado: NOME_UF[l.uf] || undefined,
         }));
     }
     listas[c.id] = leads;

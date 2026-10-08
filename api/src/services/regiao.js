@@ -45,6 +45,14 @@ export function ufDoTelefone(telefone) {
   return DDD_UF[Number(d.slice(0, 2))] || null;
 }
 
+export const NOME_UF = {
+  AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará', DF: 'Distrito Federal',
+  ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso', MS: 'Mato Grosso do Sul',
+  MG: 'Minas Gerais', PA: 'Pará', PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí',
+  RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima',
+  SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins',
+};
+
 export function regiaoDaUf(uf) {
   if (!uf) return null;
   for (const [regiao, ufs] of Object.entries(REGIAO_UF)) if (ufs.includes(uf)) return regiao;

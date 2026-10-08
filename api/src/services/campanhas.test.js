@@ -11,6 +11,7 @@ import {
   desfechoDoLead,
   ehPerguntaDeRelatorio,
   relatorioCampanhas,
+  resumirCampanha,
 } from './campanhas.js'
 
 // ─── Reconhecimento da campanha ───────────────────────────────────────────────
@@ -281,3 +282,16 @@ describe('relatorioCampanhas', () => {
     ])
   })
 })
+
+describe('resumirCampanha: localidade', () => {
+  it('conta os leads por estado pelo DDD, do maior para o menor', () => {
+    const r = resumirCampanha('GPS Padaria', [
+      { etapa: 'transferido', rica_respondeu: true, uf: 'RJ' },
+      { etapa: 'transferido', rica_respondeu: true, uf: 'PE' },
+      { etapa: 'em_andamento', rica_respondeu: true, uf: 'RJ' },
+      { etapa: 'em_andamento', rica_respondeu: true, uf: null },
+    ]);
+    expect(r.por_estado).toEqual({ 'Rio de Janeiro': 2, Pernambuco: 1, 'Não identificado': 1 });
+    expect(Object.keys(r.por_estado)[0]).toBe('Rio de Janeiro');
+  });
+});
