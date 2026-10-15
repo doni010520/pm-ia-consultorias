@@ -2,6 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../middleware/auth.js';
 import * as gcal from '../services/googleCalendar.js';
+import { executivo, interpretarWebhook, registrarMensagem } from '../services/whatsapp-executivo.js';
 
 const router = Router();
 
@@ -81,6 +82,23 @@ router.delete('/google', requireAuth, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// ── POST /api/integrations/whatsapp-executivo/:slug?secret=... ────────────────
+// Publico (webhook da uazapi). Recebe as mensagens do WhatsApp corporativo de um
+// executivo e grava no CRM as que forem com leads. Responde 200 na hora: a uazapi
+// reenvia o que demora, e baixar/transcrever audio leva segundos.
+router.post('/whatsapp-executivo/:slug', (req, res) => {
+  const secret = process.env.WA_EXEC_WEBHOOK_SECRET || '';
+  if (!secret || req.query.secret !== secret) return res.status(401).json({ ok: false });
+  const exec = executivo(req.params.slug);
+  if (!exec) return res.status(404).json({ ok: false });
+  res.json({ ok: true });
+
+  const orgId = process.env.DEFAULT_ORGANIZATION_ID;
+  registrarMensagem(orgId, exec.slug, interpretarWebhook(req.body))
+    .then((r) => { if (r.gravada) console.log(`[wa-executivo] ${exec.slug}: mensagem gravada no deal ${r.deal_id}`); })
+    .catch((err) => console.error(`[wa-executivo] ${exec.slug}: falha ao gravar`, err));
 });
 
 export default router;

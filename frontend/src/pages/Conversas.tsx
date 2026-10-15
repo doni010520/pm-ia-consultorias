@@ -177,7 +177,7 @@ function resolveDirection(msg: ConversationMessage): 'in' | 'out' {
 /** Mesma logica defensiva para `sender`, usado apenas para rotular a bolha. */
 function resolveSender(msg: ConversationMessage): ConversationSender {
   const raw = msg.sender?.trim().toLowerCase()
-  if (raw === 'cliente' || raw === 'rica_ai' || raw === 'system_followup') return raw
+  if (raw === 'cliente' || raw === 'rica_ai' || raw === 'system_followup' || raw === 'atendente' || raw === 'executivo') return raw
   if (msg.role === 'client') return 'cliente'
   if (msg.role === 'system') return 'system_followup'
   return 'rica_ai'
@@ -203,8 +203,22 @@ function ehDoAtendente(msg: ConversationMessage): boolean {
   return resolveSender(msg) === SENDER_ATENDENTE
 }
 
+/**
+ * Mensagem que veio do WhatsApp corporativo de um executivo (não do número da
+ * Rica). Devolve o nome dele, ou null. Ver api/src/services/whatsapp-executivo.js.
+ */
+function executivoDaMensagem(msg: ConversationMessage): string | null {
+  const meta = msg.metadata as Record<string, unknown> | null
+  if (meta?.canal !== 'whatsapp_executivo') return null
+  return typeof meta.executivo_nome === 'string' && meta.executivo_nome ? meta.executivo_nome : 'Executivo'
+}
+
 function senderLabel(msg: ConversationMessage, leadName: string): string {
   const sender = resolveSender(msg)
+  const executivo = executivoDaMensagem(msg)
+  // Quem analisa precisa saber em qual WhatsApp a conversa aconteceu: o lead
+  // fala com a Rica num número e com o executivo em outro.
+  if (executivo) return sender === 'cliente' ? `${leadName} · no WhatsApp de ${executivo}` : `${executivo} · WhatsApp corporativo`
   if (sender === 'cliente') return leadName
   if (sender === 'system_followup') return 'Rica · follow-up automático'
   // Escrita por uma pessoa da equipe pela tela. Precisa se distinguir da Rica:
@@ -368,6 +382,7 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
   const fromLead = isFromLead(message)
   const isFollowup = resolveSender(message) === 'system_followup'
   const doAtendente = ehDoAtendente(message)
+  const doExecutivo = !fromLead && executivoDaMensagem(message) !== null
   const aproximado = isApproximateTime(message)
   return (
     <div className={cn('flex', fromLead ? 'justify-start' : 'justify-end')}>
@@ -380,6 +395,8 @@ function MessageBubble({ message, leadName }: { message: ConversationMessage; le
             ? 'bg-violet-100 border border-violet-200 text-violet-900 rounded-tr-sm'
             // Resposta humana em cor própria: bater o olho e saber se foi a IA
             // ou uma pessoa é a informação que a equipe mais usa nesta tela.
+            : doExecutivo
+            ? 'bg-amber-600 text-white rounded-tr-sm'
             : doAtendente
             ? 'bg-emerald-600 text-white rounded-tr-sm'
             : 'bg-indigo-600 text-white rounded-tr-sm'

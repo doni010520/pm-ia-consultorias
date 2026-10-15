@@ -764,7 +764,7 @@ export interface Conversation {
  * `atendente` = mensagem escrita por uma pessoa da equipe pela tela de Conversas
  * (o rica-bot grava com esse sender ao responder pelo /admin/responder).
  */
-export type ConversationSender = 'cliente' | 'rica_ai' | 'system_followup' | 'atendente'
+export type ConversationSender = 'cliente' | 'rica_ai' | 'system_followup' | 'atendente' | 'executivo'
 
 export interface ConversationMessage {
   id: string
