@@ -99,6 +99,21 @@ export function interpretarWebhook(body) {
   };
 }
 
+/**
+ * Conversa com alguém da equipe (usuário do CRM) não é atendimento de lead, mesmo
+ * que o número tenha negócio de teste no CRM. 16/10: o "PRONTO" do André para o
+ * Adonias entrou na conversa de teste do Adonias.
+ */
+async function ehDaEquipe(orgId, telefone) {
+  const r = await query(
+    `SELECT whatsapp FROM users
+      WHERE organization_id = $1 AND COALESCE(whatsapp, '') <> ''
+        AND right(REGEXP_REPLACE(whatsapp, '\\D', '', 'g'), 8) = right($2, 8)`,
+    [orgId, telefone]
+  );
+  return r.rows.some((u) => mesmoTelefone(u.whatsapp, telefone));
+}
+
 /** Acha o negócio do lead pelo telefone. Sem negócio = não é lead → ignora. */
 async function acharLead(orgId, telefone) {
   const r = await query(
@@ -183,6 +198,7 @@ export async function registrarMensagem(orgId, slug, m) {
   if (!exec) return { ignorada: 'executivo não configurado' };
   if (!m) return { ignorada: 'não é mensagem de conversa' };
 
+  if (await ehDaEquipe(orgId, m.telefone)) return { ignorada: 'contato não é lead no CRM' };
   const lead = await acharLead(orgId, m.telefone);
   if (!lead) return { ignorada: 'contato não é lead no CRM' };
 
